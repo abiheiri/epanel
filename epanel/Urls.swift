@@ -17,10 +17,24 @@ struct Urls {
     }
     
     static func getSampleData() -> [Urls] {
+         
+        let loadedURLs = AppDelegate.GlobalVariables.resultArray
+        print (AppDelegate.GlobalVariables.resultArray)
+        
+        for items in loadedURLs {
+            print("ITEMS")
+            print(items)
+            print("ITEMS")
+        }
+
+        
         let p1 = Urls(name: "http://www.abiheiri.com"),
             p2 = Urls(name: "www.github.com"),
             p3 = Urls(name: "www.duckduckgo.com"),
             p4 = Urls(name: "news.google.com")
+//        print(type(of: p1))
+//        print(p2)
         return [p1,p2,p3,p4]
+        
     }
 }

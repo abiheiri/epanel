@@ -12,7 +12,10 @@ class ViewController: NSViewController, NSTableViewDelegate, NSTableViewDataSour
     @IBOutlet var urlText: NSTextField!
         
     @IBOutlet var tableView: NSTableView!
+    
     var sample = Urls.getSampleData()
+    
+
      
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -32,9 +35,14 @@ class ViewController: NSViewController, NSTableViewDelegate, NSTableViewDataSour
     }
 
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
+        
         if tableColumn?.identifier == NSUserInterfaceItemIdentifier(rawValue: "Url"){
+            
             let cellIdentifier = NSUserInterfaceItemIdentifier(rawValue: "urlCell")
+            
+            //if contents are not nil, load cellView constant
             guard let cellView = tableView.makeView(withIdentifier: cellIdentifier, owner: self) as? NSTableCellView else {return nil}
+            
             cellView.textField?.stringValue = sample[row].name
             return cellView
         }
@@ -45,6 +53,16 @@ class ViewController: NSViewController, NSTableViewDelegate, NSTableViewDataSour
         let newName = urlText.stringValue
         sample.append(Urls.init(name: newName))
         tableView?.reloadData()
+        
+        let path = FileManager.default.urls(for: .documentDirectory,
+                                            in: .userDomainMask)[0].appendingPathComponent("epanel.txt")
+        let newLine = ","
+        if let handle = try? FileHandle(forWritingTo: path) {
+            handle.seekToEndOfFile() // moving pointer to the end
+            try? handle.write(contentsOf: newName.data(using: .utf8)!)
+            try? handle.write(contentsOf: newLine.data(using: .utf8)!)
+            handle.closeFile() // closing the file
+        }
     }
     
 }
