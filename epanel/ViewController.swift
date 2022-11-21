@@ -8,6 +8,8 @@
 import Cocoa
 
 class ViewController: NSViewController, NSTableViewDelegate, NSTableViewDataSource {
+    
+    public var resultArray = [String]()
 
     @IBOutlet var urlText: NSTextField!
         
@@ -17,44 +19,48 @@ class ViewController: NSViewController, NSTableViewDelegate, NSTableViewDataSour
         let clickedRow = tableView.clickedRow
         
         if clickedRow >= 0 {
-//            print ("CLICKED!")
-            guard let url = URL(string: "https://stackoverflow.com") else { return }
-            NSWorkspace.shared.open(url)
+            guard let url = URL(string: resultArray[clickedRow]) else { return }
+            if resultArray[clickedRow].contains("http://") {
+                NSWorkspace.shared.open(url)
+            }
+            else {
+                guard let addHTTP = URL(string: "http://" + resultArray[clickedRow]) else { return }
+                NSWorkspace.shared.open(addHTTP)
+            }
+
         }
 
     }
     
-    public var resultArray = [String]()
     
     
-     
     override func viewDidLoad() {
         super.viewDidLoad()
         tableView.dataSource = self
         tableView.delegate = self
-        
         tableView.doubleAction = #selector(handleDoubleClick)
 
-        
-
         /*** Read from project txt file ***/
-        
         var result = ""
         
-        //if you get access to the directory
         if let dir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
          
-            //prepare file url
             let fileURL = dir.appendingPathComponent("epanel.txt")
          
             do {
                 result = try String(contentsOf: fileURL, encoding: .utf8)
-                resultArray = result.components(separatedBy: ",")
+                let scrubbed = result.components(separatedBy: .whitespacesAndNewlines).joined()
+//                for items in trimmed {
+//                    print(items)
+//                }
+                resultArray = scrubbed.components(separatedBy: ",")
+
             }
             catch {/* handle if there are any errors */}
         }
-//        print(GlobalVariables.resultArray)
-//        print(type(of: GlobalVariables.resultArray))
+//        print(type(of: resultArray))
+//        print(resultArray, terminator: "")
+          print(resultArray)
     }
 
     override var representedObject: Any? {
@@ -64,9 +70,7 @@ class ViewController: NSViewController, NSTableViewDelegate, NSTableViewDataSour
     }
 
     func numberOfRows(in tableView: NSTableView) -> Int {
-//        print(sample.count)
-//        print (GlobalVariables.resultArray.count)
-//        return sample.count
+//        print (resultArray.count)
         return resultArray.count
     }
 
@@ -87,13 +91,12 @@ class ViewController: NSViewController, NSTableViewDelegate, NSTableViewDataSour
         
     @IBAction func addButtonTapped(_ sender: Any) {
 
-        let newName = urlText.stringValue
+        let textField = urlText.stringValue
         
-        if !newName.isEmpty {
-            resultArray.append(newName)
-        }
-        else {
-
+        if !textField.isEmpty {
+            resultArray.append(textField)
+//            print (resultArray.count)
+            urlText.stringValue = ""
         }
         
         tableView?.reloadData()
@@ -104,8 +107,8 @@ class ViewController: NSViewController, NSTableViewDelegate, NSTableViewDataSour
         let newLine = ","
         if let handle = try? FileHandle(forWritingTo: path) {
             handle.seekToEndOfFile() // moving pointer to the end
-            try? handle.write(contentsOf: newName.data(using: .utf8)!)
             try? handle.write(contentsOf: newLine.data(using: .utf8)!)
+            try? handle.write(contentsOf: textField.data(using: .utf8)!)
             handle.closeFile() // closing the file
         }
     }
