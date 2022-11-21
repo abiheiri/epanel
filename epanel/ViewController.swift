@@ -13,15 +13,48 @@ class ViewController: NSViewController, NSTableViewDelegate, NSTableViewDataSour
         
     @IBOutlet var tableView: NSTableView!
     
-    var sample = Urls.getSampleData()
-    
+    @objc func handleDoubleClick() {
+        let clickedRow = tableView.clickedRow
+        
+        if clickedRow >= 0 {
+//            print ("CLICKED!")
+            guard let url = URL(string: "https://stackoverflow.com") else { return }
+            NSWorkspace.shared.open(url)
+        }
 
+    }
+    
+    public var resultArray = [String]()
+    
+    
      
     override func viewDidLoad() {
         super.viewDidLoad()
         tableView.dataSource = self
         tableView.delegate = self
         
+        tableView.doubleAction = #selector(handleDoubleClick)
+
+        
+
+        /*** Read from project txt file ***/
+        
+        var result = ""
+        
+        //if you get access to the directory
+        if let dir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
+         
+            //prepare file url
+            let fileURL = dir.appendingPathComponent("epanel.txt")
+         
+            do {
+                result = try String(contentsOf: fileURL, encoding: .utf8)
+                resultArray = result.components(separatedBy: ",")
+            }
+            catch {/* handle if there are any errors */}
+        }
+//        print(GlobalVariables.resultArray)
+//        print(type(of: GlobalVariables.resultArray))
     }
 
     override var representedObject: Any? {
@@ -31,7 +64,10 @@ class ViewController: NSViewController, NSTableViewDelegate, NSTableViewDataSour
     }
 
     func numberOfRows(in tableView: NSTableView) -> Int {
-        return sample.count
+//        print(sample.count)
+//        print (GlobalVariables.resultArray.count)
+//        return sample.count
+        return resultArray.count
     }
 
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
@@ -43,16 +79,25 @@ class ViewController: NSViewController, NSTableViewDelegate, NSTableViewDataSour
             //if contents are not nil, load cellView constant
             guard let cellView = tableView.makeView(withIdentifier: cellIdentifier, owner: self) as? NSTableCellView else {return nil}
             
-            cellView.textField?.stringValue = sample[row].name
+            cellView.textField?.stringValue = resultArray[row]
             return cellView
         }
         return nil
     }
         
     @IBAction func addButtonTapped(_ sender: Any) {
+
         let newName = urlText.stringValue
-        sample.append(Urls.init(name: newName))
+        
+        if !newName.isEmpty {
+            resultArray.append(newName)
+        }
+        else {
+
+        }
+        
         tableView?.reloadData()
+        
         
         let path = FileManager.default.urls(for: .documentDirectory,
                                             in: .userDomainMask)[0].appendingPathComponent("epanel.txt")
