@@ -15,6 +15,22 @@ class ViewController: NSViewController, NSTableViewDelegate, NSTableViewDataSour
         
     @IBOutlet var tableView: NSTableView!
     
+    /**SAVE data to txt**/
+    func getDocumentsDirectory() -> URL {
+        let paths = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)
+        return paths[0]
+    }
+    func saveData(){
+        let joined = resultArray.joined(separator: ",")
+
+        do {
+            let filename = getDocumentsDirectory().appendingPathComponent("epanel.txt")
+            try joined.write(to: filename, atomically: true, encoding: .utf8)
+        } catch {
+            print("error creating file")
+        }
+    }
+    
     @objc func handleDoubleClick() {
         let clickedRow = tableView.clickedRow
         
@@ -32,7 +48,16 @@ class ViewController: NSViewController, NSTableViewDelegate, NSTableViewDataSour
 
     }
     
+//  Delete menu item
+    @IBAction func deleteItem(_ sender: Any) {
+        let selectedRow = tableView.selectedRow
+        resultArray.remove(at: selectedRow)
+        let indexSet = IndexSet(integer:selectedRow)
+        tableView.removeRows(at:indexSet, withAnimation:.effectFade)
+        saveData()
+    }
     
+
     
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -42,25 +67,19 @@ class ViewController: NSViewController, NSTableViewDelegate, NSTableViewDataSour
 
         /*** Read from project txt file ***/
         var result = ""
-        
         if let dir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
-         
             let fileURL = dir.appendingPathComponent("epanel.txt")
          
             do {
                 result = try String(contentsOf: fileURL, encoding: .utf8)
                 let scrubbed = result.components(separatedBy: .whitespacesAndNewlines).joined()
-//                for items in trimmed {
-//                    print(items)
-//                }
                 resultArray = scrubbed.components(separatedBy: ",")
-
             }
             catch {/* handle if there are any errors */}
         }
 //        print(type(of: resultArray))
 //        print(resultArray, terminator: "")
-          print(resultArray)
+//        print(resultArray)
     }
 
     override var representedObject: Any? {
@@ -70,19 +89,14 @@ class ViewController: NSViewController, NSTableViewDelegate, NSTableViewDataSour
     }
 
     func numberOfRows(in tableView: NSTableView) -> Int {
-//        print (resultArray.count)
         return resultArray.count
     }
 
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
-        
         if tableColumn?.identifier == NSUserInterfaceItemIdentifier(rawValue: "Url"){
-            
             let cellIdentifier = NSUserInterfaceItemIdentifier(rawValue: "urlCell")
-            
             //if contents are not nil, load cellView constant
             guard let cellView = tableView.makeView(withIdentifier: cellIdentifier, owner: self) as? NSTableCellView else {return nil}
-            
             cellView.textField?.stringValue = resultArray[row]
             return cellView
         }
@@ -90,28 +104,16 @@ class ViewController: NSViewController, NSTableViewDelegate, NSTableViewDataSour
     }
         
     @IBAction func addButtonTapped(_ sender: Any) {
-
         let textField = urlText.stringValue
-        
         if !textField.isEmpty {
             resultArray.append(textField)
-//            print (resultArray.count)
             urlText.stringValue = ""
         }
         
         tableView?.reloadData()
-        
-        
-        let path = FileManager.default.urls(for: .documentDirectory,
-                                            in: .userDomainMask)[0].appendingPathComponent("epanel.txt")
-        let newLine = ","
-        if let handle = try? FileHandle(forWritingTo: path) {
-            handle.seekToEndOfFile() // moving pointer to the end
-            try? handle.write(contentsOf: newLine.data(using: .utf8)!)
-            try? handle.write(contentsOf: textField.data(using: .utf8)!)
-            handle.closeFile() // closing the file
-        }
+        saveData()
     }
     
+
 }
 
