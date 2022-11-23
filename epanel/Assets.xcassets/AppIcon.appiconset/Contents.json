@@ -1,61 +1,61 @@
 {
   "images" : [
     {
-      "filename" : "book-bookmark-icon.png",
+      "filename" : "Play-Books-icon.png",
       "idiom" : "mac",
       "scale" : "1x",
       "size" : "16x16"
     },
     {
-      "filename" : "book-bookmark-icon-2.png",
+      "filename" : "Play-Books-icon-2.png",
       "idiom" : "mac",
       "scale" : "2x",
       "size" : "16x16"
     },
     {
-      "filename" : "book-bookmark-icon-2 1.png",
+      "filename" : "Play-Books-icon-2 1.png",
       "idiom" : "mac",
       "scale" : "1x",
       "size" : "32x32"
     },
     {
-      "filename" : "book-bookmark-icon-3.png",
+      "filename" : "Play-Books-icon-3.png",
       "idiom" : "mac",
       "scale" : "2x",
       "size" : "32x32"
     },
     {
-      "filename" : "book-bookmark-icon-4.png",
+      "filename" : "Play-Books-icon-4.png",
       "idiom" : "mac",
       "scale" : "1x",
       "size" : "128x128"
     },
     {
-      "filename" : "book-bookmark-icon-256.png",
+      "filename" : "Play-Books-icon-256 1.png",
       "idiom" : "mac",
       "scale" : "2x",
       "size" : "128x128"
     },
     {
-      "filename" : "book-bookmark-icon-256 1.png",
+      "filename" : "Play-Books-icon-256.png",
       "idiom" : "mac",
       "scale" : "1x",
       "size" : "256x256"
     },
     {
-      "filename" : "book-bookmark-icon-6.png",
+      "filename" : "Play-Books-icon-5.png",
       "idiom" : "mac",
       "scale" : "2x",
       "size" : "256x256"
     },
     {
-      "filename" : "book-bookmark-icon-5.png",
+      "filename" : "Play-Books-icon-5 1.png",
       "idiom" : "mac",
       "scale" : "1x",
       "size" : "512x512"
     },
     {
-      "filename" : "book-bookmark-icon-7.png",
+      "filename" : "Play-Books-icon-5 copy.png",
       "idiom" : "mac",
       "scale" : "2x",
       "size" : "512x512"

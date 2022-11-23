@@ -36,7 +36,7 @@ class ViewController: NSViewController, NSTableViewDelegate, NSTableViewDataSour
         
         if clickedRow >= 0 {
             guard let url = URL(string: resultArray[clickedRow]) else { return }
-            if resultArray[clickedRow].contains("http://") {
+            if resultArray[clickedRow].contains("http://") || resultArray[clickedRow].contains("https://") || resultArray[clickedRow].contains("vnc://") || resultArray[clickedRow].contains("smb://") {
                 NSWorkspace.shared.open(url)
             }
             else {
