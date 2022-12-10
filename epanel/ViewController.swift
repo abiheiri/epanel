@@ -33,19 +33,12 @@ class ViewController: NSViewController, NSTableViewDelegate, NSTableViewDataSour
     
     @objc func handleDoubleClick() {
         let clickedRow = tableView.clickedRow
-        
+
         if clickedRow >= 0 {
             guard let url = URL(string: resultArray[clickedRow]) else { return }
-            if resultArray[clickedRow].contains("http://") || resultArray[clickedRow].contains("https://") || resultArray[clickedRow].contains("vnc://") || resultArray[clickedRow].contains("smb://") {
-                NSWorkspace.shared.open(url)
-            }
-            else {
-                guard let addHTTP = URL(string: "http://" + resultArray[clickedRow]) else { return }
-                NSWorkspace.shared.open(addHTTP)
-            }
-
+            let cfg = NSWorkspace.OpenConfiguration()
+            NSWorkspace.shared.openApplication(at: url, configuration: cfg)
         }
-
     }
     
 //  Delete menu item
