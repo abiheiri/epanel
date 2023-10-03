@@ -86,6 +86,9 @@ class ViewController: NSViewController, NSTableViewDelegate, NSTableViewDataSour
     }
 
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
+        // Hide the header bar that is blank and taking up space ("Table Header View")
+        self.tableView.headerView = nil;
+
         if tableColumn?.identifier == NSUserInterfaceItemIdentifier(rawValue: "Url"){
             let cellIdentifier = NSUserInterfaceItemIdentifier(rawValue: "urlCell")
             //if contents are not nil, load cellView constant
@@ -94,6 +97,7 @@ class ViewController: NSViewController, NSTableViewDelegate, NSTableViewDataSour
             return cellView
         }
         return nil
+        
     }
         
     @IBAction func addButtonTapped(_ sender: Any) {
