@@ -71,6 +71,16 @@ class ViewController: NSViewController, NSTableViewDelegate, NSTableViewDataSour
         }
         return nil
     }
+    
+    /** Update urlText if left-click on tableView**/
+    func tableViewSelectionDidChange(_ notification: Notification) {
+        let selectedRow = tableView.selectedRow
+        if selectedRow != -1 {
+            urlText.stringValue = resultArray[selectedRow]
+        } else {
+            urlText.stringValue = ""
+        }
+    }
 
     /** Add Button Action **/
     @IBAction func addButtonTapped(_ sender: Any) {

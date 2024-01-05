@@ -5,6 +5,8 @@
 //  Created by Al Biheiri on 1/4/24.
 //
 
+// This is to override the tableview to provide a custom context menu
+
 import Cocoa
 
 class CustomTableView: NSTableView {
@@ -17,7 +19,7 @@ class CustomTableView: NSTableView {
             self.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
         }
 
-        return super.menu(for: event) // Corrected this line
+        return super.menu(for: event)
     }
 
 }
