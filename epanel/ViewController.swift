@@ -107,28 +107,22 @@ class ViewController: NSViewController, NSTableViewDelegate, NSTableViewDataSour
         }
     }
 
-    /** Handle Double Click Action **/
-    @objc func handleDoubleClick() {
-        let clickedRow = tableView.clickedRow
-
-        if clickedRow >= 0 {
-            guard let url = URL(string: filteredArray[clickedRow]) else { return }
-            let cfg = NSWorkspace.OpenConfiguration()
-            NSWorkspace.shared.openApplication(at: url, configuration: cfg)
+    /** Combined method for Double Click and Go action **/
+    private func openURLFromTableView(at index: Int) {
+        guard index >= 0, index < filteredArray.count,
+              let url = URL(string: filteredArray[index]) else {
+            return
         }
+        let cfg = NSWorkspace.OpenConfiguration()
+        NSWorkspace.shared.openApplication(at: url, configuration: cfg)
+    }
+
+    @objc func handleDoubleClick() {
+        openURLFromTableView(at: tableView.clickedRow)
     }
     
     @objc func handleGoAction(_ sender: Any) {
-        let clickedRow = tableView.clickedRow
-        openURLAtIndex(clickedRow)
-    }
-
-    private func openURLAtIndex(_ index: Int) {
-        if index >= 0 && index < filteredArray.count {
-            guard let url = URL(string: filteredArray[index]) else { return }
-            let cfg = NSWorkspace.OpenConfiguration()
-            NSWorkspace.shared.openApplication(at: url, configuration: cfg)
-        }
+        openURLFromTableView(at: tableView.clickedRow)
     }
     
     /** Save Data Method **/
