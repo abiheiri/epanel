@@ -1,4 +1,5 @@
 import Cocoa
+import UniformTypeIdentifiers
 
 class ViewController: NSViewController, NSTableViewDelegate, NSTableViewDataSource {
     
@@ -29,18 +30,28 @@ class ViewController: NSViewController, NSTableViewDelegate, NSTableViewDataSour
         tableView.menu = menu
     }
 
-    /** Method to load initial data from file **/
-    private func loadInitialData() {
+    /** Method to load data from file **/
+    private func loadInitialData(from fileURL: URL? = nil) {
         var result = ""
-        if let dir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
-            let fileURL = dir.appendingPathComponent("epanel.txt")
-         
-            do {
-                result = try String(contentsOf: fileURL, encoding: .utf8)
-                let scrubbed = result.components(separatedBy: .whitespacesAndNewlines).joined()
-                resultArray = scrubbed.components(separatedBy: ",")
+        let fileURL = fileURL ?? FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first?.appendingPathComponent("epanel.txt")
+        
+        guard let url = fileURL else {
+            // Handle the error - the URL was nil
+            return
+        }
+        
+        do {
+            result = try String(contentsOf: url, encoding: .utf8)
+            let scrubbed = result.components(separatedBy: .whitespacesAndNewlines).joined()
+            resultArray = scrubbed.components(separatedBy: ",")
+            filteredArray = resultArray // Update the filtered array as well
+
+            DispatchQueue.main.async { [weak self] in
+                self?.tableView.reloadData() // Reload the table view on the main thread
             }
-            catch {/* handle if there are any errors */}
+        } catch {
+            // Handle the error, such as showing an alert to the user
+            print("Error reading from file URL: \(error)")
         }
     }
 
@@ -126,16 +137,66 @@ class ViewController: NSViewController, NSTableViewDelegate, NSTableViewDataSour
     }
     
     /** Save Data Method **/
-    func saveData() {
+    func saveData(to url: URL? = nil) {
         let joined = resultArray.joined(separator: ",")
+        let destinationURL = url ?? getDocumentsDirectory().appendingPathComponent("epanel.txt")
+
         do {
-            let filename = getDocumentsDirectory().appendingPathComponent("epanel.txt")
-            try joined.write(to: filename, atomically: true, encoding: .utf8)
+            try joined.write(to: destinationURL, atomically: true, encoding: .utf8)
         } catch {
-            print("Error saving file")
+            print("Error saving file: \(error)")
         }
     }
 
+    @IBAction func exportMenuItemClicked(_ sender: NSMenuItem) {
+        let savePanel = NSSavePanel()
+        savePanel.title = "Export Data"
+        savePanel.message = "Choose a location to export the data"
+        savePanel.allowedContentTypes = [UTType.plainText]
+
+        savePanel.begin { [weak self] (result) in
+            if result == .OK, let url = savePanel.url {
+                self?.saveData(to: url)
+            }
+        }
+    }
+    
+    @IBAction func openMenuItemClicked(_ sender: NSMenuItem) {
+        let openPanel = NSOpenPanel()
+        openPanel.title = "Open File"
+        openPanel.showsResizeIndicator = true
+        openPanel.showsHiddenFiles = false
+        openPanel.canChooseDirectories = false
+        openPanel.canCreateDirectories = false
+        openPanel.allowsMultipleSelection = false
+        openPanel.allowedContentTypes = [UTType.plainText]
+
+        openPanel.begin { [weak self] (result) in
+            if result == .OK, let url = openPanel.url {
+                do {
+                    try self?.loadDataFromFile(url: url)
+                    // Data loaded successfully, proceed to save
+                    self?.saveData()
+                } catch {
+                    // Handle error - data was not loaded
+                    print("Error loading data: \(error)")
+                    // Optionally, inform the user with a dialog
+                }
+            }
+        }
+    }
+    
+    func loadDataFromFile(url: URL) throws {
+        let result = try String(contentsOf: url, encoding: .utf8)
+        let scrubbed = result.components(separatedBy: .whitespacesAndNewlines).joined()
+        resultArray = scrubbed.components(separatedBy: ",")
+        filteredArray = resultArray // Update the filtered array as well
+
+        DispatchQueue.main.async { [weak self] in
+            self?.tableView.reloadData() // Reload the table view on the main thread
+        }
+    }
+    
     /** Helper to get documents directory **/
     func getDocumentsDirectory() -> URL {
         let paths = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)
