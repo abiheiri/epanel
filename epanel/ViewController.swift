@@ -120,13 +120,40 @@ class ViewController: NSViewController, NSTableViewDelegate, NSTableViewDataSour
 
     /** Combined method for Double Click and Go action **/
     private func openURLFromTableView(at index: Int) {
-        guard index >= 0, index < filteredArray.count,
-              let url = URL(string: filteredArray[index]) else {
+        guard index >= 0, index < filteredArray.count else {
+            print("Invalid index")
             return
         }
-        let cfg = NSWorkspace.OpenConfiguration()
-        NSWorkspace.shared.openApplication(at: url, configuration: cfg)
+
+        let rawPath = filteredArray[index]
+
+        // First, attempt to treat the input as a URL
+        if let url = URL(string: rawPath), url.scheme != nil {
+            // It's a URL with a scheme, attempt to open it as an application or webpage
+            let cfg = NSWorkspace.OpenConfiguration()
+            NSWorkspace.shared.openApplication(at: url, configuration: cfg)
+        } else {
+            // Treat as a local file path
+            let url = URL(fileURLWithPath: rawPath)
+            let fileManager = FileManager.default
+            var isDir: ObjCBool = false
+            
+            // Check if the path exists and if it's a directory
+            if fileManager.fileExists(atPath: rawPath, isDirectory: &isDir) {
+                if isDir.boolValue {
+                    // It's a directory, open it in Finder
+                    NSWorkspace.shared.activateFileViewerSelecting([url])
+                } else {
+                    // It's a file, open it with its default application
+                    NSWorkspace.shared.open(url)
+                }
+            } else {
+                // The path might be incorrect or the application doesn't have access
+                // print("Path does not exist or is not accessible: \(rawPath)")
+            }
+        }
     }
+
 
     @objc func handleDoubleClick() {
         openURLFromTableView(at: tableView.clickedRow)
