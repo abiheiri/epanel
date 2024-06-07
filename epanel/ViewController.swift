@@ -87,7 +87,7 @@ class ViewController: NSViewController, NSTableViewDelegate, NSTableViewDataSour
     func tableViewSelectionDidChange(_ notification: Notification) {
         let selectedRow = tableView.selectedRow
         if selectedRow != -1 {
-            urlText.stringValue = resultArray[selectedRow]
+            urlText.stringValue = filteredArray[selectedRow]
         } else {
             urlText.stringValue = ""
         }
@@ -98,20 +98,21 @@ class ViewController: NSViewController, NSTableViewDelegate, NSTableViewDataSour
         let textField = urlText.stringValue
         if !textField.isEmpty {
             resultArray.append(textField)
-            filteredArray = resultArray
+            filterContentForSearchText("") // Update filteredArray using the current search text
             urlText.stringValue = ""
         }
-        
+
         tableView?.reloadData()
         saveData()
     }
 
     /** Delete Item Action **/
+    /** Delete Item Action **/
     @IBAction func deleteItem(_ sender: Any) {
         let selectedRow = tableView.selectedRow
         if selectedRow >= 0 && selectedRow < resultArray.count {
             resultArray.remove(at: selectedRow)
-            filteredArray = resultArray
+            filterContentForSearchText("") // Update filteredArray using the current search text
             let indexSet = IndexSet(integer: selectedRow)
             tableView.removeRows(at: indexSet, withAnimation: .effectFade)
             saveData()
