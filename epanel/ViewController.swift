@@ -107,17 +107,20 @@ class ViewController: NSViewController, NSTableViewDelegate, NSTableViewDataSour
     }
 
     /** Delete Item Action **/
-    /** Delete Item Action **/
     @IBAction func deleteItem(_ sender: Any) {
         let selectedRow = tableView.selectedRow
-        if selectedRow >= 0 && selectedRow < resultArray.count {
-            resultArray.remove(at: selectedRow)
-            filterContentForSearchText("") // Update filteredArray using the current search text
-            let indexSet = IndexSet(integer: selectedRow)
-            tableView.removeRows(at: indexSet, withAnimation: .effectFade)
+        if selectedRow >= 0 && selectedRow < filteredArray.count {
+            // Remove the item from the resultArray based on the filteredArray index
+            let itemToDelete = filteredArray[selectedRow]
+            if let indexInResultArray = resultArray.firstIndex(of: itemToDelete) {
+                resultArray.remove(at: indexInResultArray)
+            }
+            filterContentForSearchText(urlText.stringValue)
+            tableView.reloadData() // Reload table data after deletion
             saveData()
         }
     }
+
 
     /** Combined method for Double Click and Go action **/
     private func openURLFromTableView(at index: Int) {
