@@ -11,12 +11,12 @@ on:
 
 jobs:
   build:
-
     runs-on: macos-latest
 
     steps:
     - uses: actions/checkout@v4
     - name: Build
-      run: swift build -v
+      run: xcodebuild -project epanel.xcodeproj -scheme epanel -sdk macosx -configuration Release build
     - name: Run tests
-      run: swift test -v
+      run: xcodebuild test -project epanel.xcodeproj -scheme epanel -sdk macosx -configuration Debug -destination 'platform=macOS'
+
