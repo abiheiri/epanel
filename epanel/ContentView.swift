@@ -39,20 +39,22 @@ struct ContentView: View {
                     HStack {
                         Text(entry.text)
                             .frame(maxWidth: .infinity, alignment: .leading)
-                        
                         Text(dataStore.dateFormatter.string(from: entry.date))
                             .frame(width: 120, alignment: .trailing)
                     }
                     .tag(entry.id)
                     .contentShape(Rectangle())
-                    // A single tap selects the entry and updates the text field
+                    // Explicitly update the selection on single tap.
                     .onTapGesture {
-                        selectEntry(entry)
+                        selectedEntryID = entry.id
                     }
-                    // A double tap opens the entry
-                    .onTapGesture(count: 2) {
-                        openEntry(entry)
-                    }
+                    // Attach the double-tap action using simultaneousGesture.
+                    .simultaneousGesture(
+                        TapGesture(count: 2)
+                            .onEnded { _ in
+                                openEntry(entry)
+                            }
+                    )
                     .contextMenu {
                         Button("Go") { openEntry(entry) }
                         Divider()
@@ -60,8 +62,8 @@ struct ContentView: View {
                     }
                     .listRowBackground(
                         selectedEntryID == entry.id
-                        ? Color.accentColor.opacity(0.1)
-                        : Color.clear
+                            ? Color.accentColor.opacity(0.1)
+                            : Color.clear
                     )
                 }
             }
@@ -137,14 +139,4 @@ struct ContentView: View {
         }
     }
     
-    // When a user clicks an entry, update the text field without triggering filtering.
-    private func selectEntry(_ entry: Entry) {
-        // Update the text field to show the clicked entry.
-        textInput = entry.text
-        // Clear the filtering string so the list remains unfiltered.
-        searchFilter = ""
-        selectedEntryID = entry.id
-        // Remove focus so that the programmatic update of textInput does not trigger filtering.
-        isTextFieldFocused = false
-    }
 }
