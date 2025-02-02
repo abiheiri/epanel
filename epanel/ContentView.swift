@@ -3,12 +3,11 @@ import SwiftUI
 
 struct ContentView: View {
     @StateObject private var dataStore = DataStore.shared
-    @State private var textInput = ""          // Contents of the text field.
-    @State private var searchFilter = ""       // Only used for filtering the list.
+    @State private var textInput = ""
+    @State private var searchFilter = ""
     @State private var selectedEntryID: UUID?
-    @FocusState private var isTextFieldFocused: Bool  // Tracks whether the text field is focused.
+    @FocusState private var isTextFieldFocused: Bool
     
-    // Compute the list of entries to show.
     var filteredEntries: [Entry] {
         searchFilter.isEmpty ? dataStore.entries : dataStore.entries.filter { $0.text.hasPrefix(searchFilter) }
     }
@@ -19,9 +18,7 @@ struct ContentView: View {
                 TextField("Search or Add", text: $textInput)
                     .focused($isTextFieldFocused)
                     .textFieldStyle(.roundedBorder)
-                    // When the user submits (e.g. Return key) add the entry.
                     .onSubmit(addEntry)
-                    // When text changes, update filtering only if the user is actively editing.
                     .onChange(of: textInput) { newValue in
                         if isTextFieldFocused {
                             searchFilter = newValue
@@ -44,11 +41,9 @@ struct ContentView: View {
                     }
                     .tag(entry.id)
                     .contentShape(Rectangle())
-                    // Explicitly update the selection on single tap.
                     .onTapGesture {
                         selectedEntryID = entry.id
                     }
-                    // Attach the double-tap action using simultaneousGesture.
                     .simultaneousGesture(
                         TapGesture(count: 2)
                             .onEnded { _ in
@@ -68,6 +63,14 @@ struct ContentView: View {
                 }
             }
             .environment(\.defaultMinListRowHeight, 30)
+            .onCopyCommand { // Handle Copy command (menu item or keyboard shortcut)
+                guard let selectedID = selectedEntryID,
+                      let entry = dataStore.entries.first(where: { $0.id == selectedID }) else {
+                    return []
+                }
+                let itemProvider = NSItemProvider(object: entry.text as NSString)
+                return [itemProvider]
+            }
         }
         .frame(minWidth: 500, minHeight: 400)
         .alert("Error", isPresented: $dataStore.showAlert) {
@@ -75,7 +78,6 @@ struct ContentView: View {
         } message: {
             Text(dataStore.alertMessage)
         }
-        // Hidden button to support Command+Backspace for deleting the selected entry.
         .background(
             Button(action: deleteSelectedEntry) {
                 EmptyView()
