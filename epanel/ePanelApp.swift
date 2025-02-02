@@ -1,4 +1,3 @@
-// ePanelApp.swift
 import SwiftUI
 import AppKit
 
@@ -64,17 +63,33 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Delay execution to ensure the main menu is fully set up.
         DispatchQueue.main.async {
-            guard let mainMenu = NSApp.mainMenu,
-                  let fileMenuItem = mainMenu.item(withTitle: "File") else { return }
-            
-            // Remove the File menu from its current position.
-            mainMenu.removeItem(fileMenuItem)
-            
-            // Insert the File menu at the desired index.
-            // Note: macOS always reserves index 0 for the application menu.
-            // Inserting at index 1 places File right after it.
-            mainMenu.insertItem(fileMenuItem, at: 1)
+            self.reorderFileMenu()
         }
+        
+        // Observe application activation to reorder the File menu when the app regains focus.
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(applicationDidBecomeActive),
+            name: NSApplication.didBecomeActiveNotification,
+            object: nil
+        )
     }
-
+    
+    @objc func applicationDidBecomeActive(_ notification: Notification) {
+        // Reorder the File menu when the app becomes active.
+        reorderFileMenu()
+    }
+    
+    private func reorderFileMenu() {
+        guard let mainMenu = NSApp.mainMenu,
+              let fileMenuItem = mainMenu.item(withTitle: "File") else { return }
+        
+        // Remove the File menu from its current position.
+        mainMenu.removeItem(fileMenuItem)
+        
+        // Insert the File menu at the desired index.
+        // Note: macOS always reserves index 0 for the application menu.
+        // Inserting at index 1 places File right after it.
+        mainMenu.insertItem(fileMenuItem, at: 1)
+    }
 }
