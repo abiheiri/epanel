@@ -5,16 +5,16 @@ import AppKit
 struct ePanelApp: App {
     @StateObject private var dataStore = DataStore.shared
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
-    
+
     var body: some Scene {
         WindowGroup {
             ContentView()
         }
         .commands {
-            // Remove only default File menu items we're replacing
+            // Remove only the default File menu items we're replacing.
             CommandGroup(replacing: .newItem) { }
             
-            // Add our custom File menu items
+            // Add our custom File menu items.
             CommandMenu("File") {
                 Button("Open...") { openFile() }
                     .keyboardShortcut("o")
@@ -61,6 +61,70 @@ struct ePanelApp: App {
 }
 
 class AppDelegate: NSObject, NSApplicationDelegate {
+    // The status item appears only when the app is hidden.
+    var statusItem: NSStatusItem?
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        // Delay to ensure the window is ready.
+        DispatchQueue.main.async {
+            self.reorderFileMenu()
+            if let window = NSApp.windows.first {
+                // Override the minimize (miniaturize) button's target and action.
+                if let miniaturizeButton = window.standardWindowButton(.miniaturizeButton) {
+                    miniaturizeButton.target = self
+                    miniaturizeButton.action = #selector(self.customMiniaturizeAction(_:))
+                }
+            }
+        }
+        
+        // When the app becomes active, remove the status item.
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(applicationDidBecomeActive(_:)),
+            name: NSApplication.didBecomeActiveNotification,
+            object: nil
+        )
+    }
+    
+    @objc func customMiniaturizeAction(_ sender: Any?) {
+        createStatusItem()
+        // Hide the application instead of actually miniaturizing.
+        NSApp.hide(nil)
+    }
+    
+    @objc func statusItemClicked() {
+        NSApp.unhide(nil)
+        if let window = NSApp.windows.first {
+            window.makeKeyAndOrderFront(nil)
+        }
+        removeStatusItem()
+    }
+    
+    @objc func applicationDidBecomeActive(_ notification: Notification) {
+        reorderFileMenu()
+        removeStatusItem()
+    }
+    
+    private func createStatusItem() {
+        guard statusItem == nil else { return }
+        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        if let button = statusItem?.button {
+            let icon = NSImage(systemSymbolName: "book.pages", accessibilityDescription: nil)
+            icon?.isTemplate = true  // Ensures it adapts to light/dark mode
+            button.image = icon
+            button.action = #selector(statusItemClicked)
+        }
+    }
+
+
+    
+    private func removeStatusItem() {
+        if let item = statusItem {
+            NSStatusBar.system.removeStatusItem(item)
+            statusItem = nil
+        }
+    }
+    
     func applicationWillTerminate(_ notification: Notification) {
         DataStore.shared.saveEntries()
     }
@@ -69,36 +133,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         return true
     }
     
-    func applicationDidFinishLaunching(_ notification: Notification) {
-        // Delay execution to ensure the main menu is fully set up.
-        DispatchQueue.main.async {
-            self.reorderFileMenu()
-        }
-        
-        // Observe application activation to reorder the File menu when the app regains focus.
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(applicationDidBecomeActive),
-            name: NSApplication.didBecomeActiveNotification,
-            object: nil
-        )
-    }
-    
-    @objc func applicationDidBecomeActive(_ notification: Notification) {
-        // Reorder the File menu when the app becomes active.
-        reorderFileMenu()
-    }
-    
     private func reorderFileMenu() {
         guard let mainMenu = NSApp.mainMenu,
               let fileMenuItem = mainMenu.item(withTitle: "File") else { return }
-        
-        // Remove the File menu from its current position.
         mainMenu.removeItem(fileMenuItem)
-        
-        // Insert the File menu at the desired index.
-        // Note: macOS always reserves index 0 for the application menu.
-        // Inserting at index 1 places File right after it.
+        // Insert the File menu immediately after the Application menu (index 1).
         mainMenu.insertItem(fileMenuItem, at: 1)
     }
 }
