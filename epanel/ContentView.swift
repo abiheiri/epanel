@@ -1,4 +1,3 @@
-// ContentView.swift
 import SwiftUI
 
 struct ContentView: View {
@@ -7,13 +6,33 @@ struct ContentView: View {
     @State private var searchFilter = ""
     @State private var selectedEntryID: UUID?
     @FocusState private var isTextFieldFocused: Bool
-    
-    var filteredEntries: [Entry] {
-        searchFilter.isEmpty ? dataStore.entries : dataStore.entries.filter { $0.text.hasPrefix(searchFilter) }
+
+    // Sort state
+    enum SortKey {
+        case name, date
     }
+    @State private var sortKey: SortKey = .date
+    @State private var isAscending = true
+
+    var filteredEntries: [Entry] {
+        let entries = searchFilter.isEmpty
+            ? dataStore.entries
+            : dataStore.entries.filter { $0.text.localizedCaseInsensitiveContains(searchFilter) }
+        
+        return entries.sorted {
+            switch sortKey {
+            case .name:
+                return isAscending ? $0.text < $1.text : $0.text > $1.text
+            case .date:
+                return isAscending ? $0.date < $1.date : $0.date > $1.date
+            }
+        }
+    }
+
     
     var body: some View {
         VStack(spacing: 0) {
+            // Search/Add input field remains unchanged
             HStack {
                 TextField("Search or Add", text: $textInput)
                     .focused($isTextFieldFocused)
@@ -31,7 +50,60 @@ struct ContentView: View {
             }
             .padding()
             
+            // List with a non‑sticky header row
             List(selection: $selectedEntryID) {
+                // Header row as a regular list item.
+                HStack {
+                    // Name Column Header
+                    Button {
+                        withAnimation {
+                            if sortKey == .name {
+                                isAscending.toggle()
+                            } else {
+                                sortKey = .name
+                                isAscending = true
+                            }
+                        }
+                    } label: {
+                        HStack {
+                            Text("Name")
+                            if sortKey == .name {
+                                Image(systemName: isAscending ? "arrow.up" : "arrow.down")
+                                    .font(.caption)
+                            }
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .buttonStyle(.plain)  // Optional: to avoid any button styling affecting the header
+                    
+                    // Date Column Header
+                    Button {
+                        withAnimation {
+                            if sortKey == .date {
+                                isAscending.toggle()
+                            } else {
+                                sortKey = .date
+                                isAscending = true
+                            }
+                        }
+                    } label: {
+                        HStack {
+                            Text("Date Added")
+                            if sortKey == .date {
+                                Image(systemName: isAscending ? "arrow.up" : "arrow.down")
+                                    .font(.caption)
+                            }
+                        }
+                    }
+                    .frame(width: 120, alignment: .trailing)
+                    .buttonStyle(.plain)
+                }
+                .padding(.vertical, 8)
+                .background(Color(NSColor.controlBackgroundColor))
+                // Prevent selection for the header row:
+                .listRowBackground(Color.clear)
+                
+                // Data rows
                 ForEach(filteredEntries) { entry in
                     HStack {
                         Text(entry.text)
@@ -41,14 +113,10 @@ struct ContentView: View {
                     }
                     .tag(entry.id)
                     .contentShape(Rectangle())
-                    .onTapGesture {
-                        selectedEntryID = entry.id
-                    }
+                    .onTapGesture { selectedEntryID = entry.id }
                     .simultaneousGesture(
                         TapGesture(count: 2)
-                            .onEnded { _ in
-                                openEntry(entry)
-                            }
+                            .onEnded { _ in openEntry(entry) }
                     )
                     .contextMenu {
                         Button("Go") { openEntry(entry) }
@@ -63,7 +131,7 @@ struct ContentView: View {
                 }
             }
             .environment(\.defaultMinListRowHeight, 30)
-            .onCopyCommand { // Handle Copy command (menu item or keyboard shortcut)
+            .onCopyCommand {
                 guard let selectedID = selectedEntryID,
                       let entry = dataStore.entries.first(where: { $0.id == selectedID }) else {
                     return []
@@ -140,5 +208,4 @@ struct ContentView: View {
             }
         }
     }
-    
 }

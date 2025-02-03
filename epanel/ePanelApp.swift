@@ -29,6 +29,15 @@ struct ePanelApp: App {
                 Button("Export...") { exportFile() }
                     .keyboardShortcut("e")
             }
+            
+            // Replace the default Help menu with our custom Help command.
+            CommandGroup(replacing: .help) {
+                Button("ePanel Help") {
+                    if let url = URL(string: "https://github.com/abiheiri/epanel/blob/main/README.md") {
+                        NSWorkspace.shared.open(url)
+                    }
+                }
+            }
         }
     }
     
