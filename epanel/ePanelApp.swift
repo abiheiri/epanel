@@ -11,26 +11,20 @@ struct ePanelApp: App {
             ContentView()
         }
         .commands {
-            // Remove only the default File menu items we're replacing.
+            // Remove only the default "New" command.
             CommandGroup(replacing: .newItem) { }
             
-            // Add our custom File menu items.
-            CommandMenu("File") {
-                Button("Open...") { openFile() }
-                    .keyboardShortcut("o")
-                
-                Button("Close Window") {
-                    NSApp.keyWindow?.close()
-                }
-                .keyboardShortcut("w")
+            CommandGroup(before: .saveItem) {
+                Button("Open…") { openFile() }
+                    .keyboardShortcut("o", modifiers: .command)
                 
                 Divider()
                 
-                Button("Export...") { exportFile() }
-                    .keyboardShortcut("e")
+                Button("Export…") { exportFile() }
+                    .keyboardShortcut("e", modifiers: .command)
             }
             
-            // Replace the default Help menu with our custom Help command.
+            
             CommandGroup(replacing: .help) {
                 Button("ePanel Help") {
                     if let url = URL(string: "https://github.com/abiheiri/epanel/blob/main/README.md") {
@@ -61,23 +55,17 @@ struct ePanelApp: App {
 }
 
 class AppDelegate: NSObject, NSApplicationDelegate {
-    // The status item appears only when the app is hidden.
     var statusItem: NSStatusItem?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // Delay to ensure the window is ready.
         DispatchQueue.main.async {
-            self.reorderFileMenu()
-            if let window = NSApp.windows.first {
-                // Override the minimize (miniaturize) button's target and action.
-                if let miniaturizeButton = window.standardWindowButton(.miniaturizeButton) {
-                    miniaturizeButton.target = self
-                    miniaturizeButton.action = #selector(self.customMiniaturizeAction(_:))
-                }
+            if let window = NSApp.windows.first,
+               let miniaturizeButton = window.standardWindowButton(.miniaturizeButton) {
+                miniaturizeButton.target = self
+                miniaturizeButton.action = #selector(self.customMiniaturizeAction(_:))
             }
         }
         
-        // When the app becomes active, remove the status item.
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(applicationDidBecomeActive(_:)),
@@ -88,7 +76,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     
     @objc func customMiniaturizeAction(_ sender: Any?) {
         createStatusItem()
-        // Hide the application instead of actually miniaturizing.
         NSApp.hide(nil)
     }
     
@@ -101,7 +88,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
     
     @objc func applicationDidBecomeActive(_ notification: Notification) {
-        reorderFileMenu()
         removeStatusItem()
     }
     
@@ -110,13 +96,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let button = statusItem?.button {
             let icon = NSImage(systemSymbolName: "book.pages", accessibilityDescription: nil)
-            icon?.isTemplate = true  // Ensures it adapts to light/dark mode
+            icon?.isTemplate = true
             button.image = icon
             button.action = #selector(statusItemClicked)
         }
     }
-
-
     
     private func removeStatusItem() {
         if let item = statusItem {
@@ -131,13 +115,5 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         return true
-    }
-    
-    private func reorderFileMenu() {
-        guard let mainMenu = NSApp.mainMenu,
-              let fileMenuItem = mainMenu.item(withTitle: "File") else { return }
-        mainMenu.removeItem(fileMenuItem)
-        // Insert the File menu immediately after the Application menu (index 1).
-        mainMenu.insertItem(fileMenuItem, at: 1)
     }
 }
