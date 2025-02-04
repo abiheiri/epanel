@@ -30,13 +30,36 @@ struct EntryRowView: View {
 
 struct ContentView: View {
     @StateObject private var dataStore = DataStore.shared
+    
+    var body: some View {
+        TabView {
+            LinksView(dataStore: dataStore)
+                .tabItem {
+                    Label("Links", systemImage: "link")
+                }
+            
+            NotesView(dataStore: dataStore)
+                .tabItem {
+                    Label("Notes", systemImage: "note.text")
+                }
+        }
+        .frame(minWidth: 500, minHeight: 400)
+        .alert("Error", isPresented: $dataStore.showAlert) {
+            Button("OK") { }
+        } message: {
+            Text(dataStore.alertMessage)
+        }
+    }
+}
+
+struct LinksView: View {
+    @ObservedObject var dataStore: DataStore
     @State private var textInput = ""
     @State private var searchFilter = ""
     @State private var selectedEntryID: UUID?
     @FocusState private var isTextFieldFocused: Bool
-    @State private var isAscending = true  // Sorting state for the Name column
+    @State private var isAscending = true
 
-    // Filtered entries sorted by name
     var filteredEntries: [Entry] {
         let entries = searchFilter.isEmpty
             ? dataStore.entries
@@ -49,7 +72,6 @@ struct ContentView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Search/Add input field
             HStack {
                 TextField("Search or Add", text: $textInput)
                     .focused($isTextFieldFocused)
@@ -67,9 +89,7 @@ struct ContentView: View {
             }
             .padding()
             
-            // List with header and sorting button for "Name"
             List(selection: $selectedEntryID) {
-                // Header row with "Name" and sort toggle
                 HStack {
                     Button {
                         withAnimation {
@@ -89,7 +109,6 @@ struct ContentView: View {
                 .background(Color(NSColor.controlBackgroundColor))
                 .listRowBackground(Color.clear)
 
-                // List rows
                 ForEach(filteredEntries) { entry in
                     EntryRowView(
                         entry: entry,
@@ -111,12 +130,6 @@ struct ContentView: View {
                 let itemProvider = NSItemProvider(object: entry.text as NSString)
                 return [itemProvider]
             }
-        }
-        .frame(minWidth: 500, minHeight: 400)
-        .alert("Error", isPresented: $dataStore.showAlert) {
-            Button("OK") { }
-        } message: {
-            Text(dataStore.alertMessage)
         }
         .background(
             Button(action: deleteSelectedEntry) {
@@ -179,5 +192,16 @@ struct ContentView: View {
                 }
             }
         }
+    }
+}
+
+struct NotesView: View {
+    @ObservedObject var dataStore: DataStore
+    
+    var body: some View {
+        TextEditor(text: $dataStore.notesText)
+            .font(.system(size: 14))
+            .padding()
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }

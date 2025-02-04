@@ -1,6 +1,6 @@
+// DataStore.swift
 import Foundation
 import AppKit
-
 
 struct Entry: Identifiable, Equatable, Hashable {
     let id = UUID()
@@ -12,6 +12,7 @@ class DataStore: ObservableObject {
     static let shared = DataStore()
     
     @Published var entries: [Entry] = []
+    @Published var notesText = ""
     @Published var showAlert = false
     @Published var alertMessage = ""
     
@@ -23,12 +24,13 @@ class DataStore: ObservableObject {
     
     init() {
         loadEntries()
+        loadNotes()
         NotificationCenter.default.addObserver(
             forName: NSApplication.willTerminateNotification,
             object: nil,
             queue: .main
         ) { _ in
-            self.saveEntries()
+            self.saveAll()
         }
     }
     
@@ -45,6 +47,20 @@ class DataStore: ObservableObject {
         } catch {}
     }
     
+    func loadNotes() {
+        let fileURL = getDocumentsDirectory().appendingPathComponent("epanel.txt")
+        do {
+            notesText = try String(contentsOf: fileURL)
+        } catch {
+            notesText = ""
+        }
+    }
+    
+    func saveAll() {
+        saveEntries()
+        saveNotes()
+    }
+    
     func saveEntries() {
         let csvString = entries.map {
             "\($0.text),\(dateFormatter.string(from: $0.date))"
@@ -54,6 +70,15 @@ class DataStore: ObservableObject {
             try csvString.write(to: getDocumentsDirectory().appendingPathComponent("epanel.csv"), atomically: true, encoding: .utf8)
         } catch {
             showAlert(message: "Failed to save entries")
+        }
+    }
+    
+    func saveNotes() {
+        let fileURL = getDocumentsDirectory().appendingPathComponent("epanel.txt")
+        do {
+            try notesText.write(to: fileURL, atomically: true, encoding: .utf8)
+        } catch {
+            showAlert(message: "Failed to save notes")
         }
     }
     

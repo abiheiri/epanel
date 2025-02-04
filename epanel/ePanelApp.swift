@@ -109,10 +109,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
     
-    func applicationWillTerminate(_ notification: Notification) {
-        DataStore.shared.saveEntries()
-    }
-    
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         return true
     }
