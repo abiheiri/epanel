@@ -24,6 +24,13 @@ struct ePanelApp: App {
                     .keyboardShortcut("e", modifiers: .command)
             }
             
+            CommandGroup(after: .textEditing) {
+                Button("Find…") {
+                    // This will need to be handled in the NotesView
+                    NotificationCenter.default.post(name: .init("ShowFindReplace"), object: nil)
+                }
+                .keyboardShortcut("f", modifiers: [.command])
+            }
             
             CommandGroup(replacing: .help) {
                 Button("ePanel Help") {

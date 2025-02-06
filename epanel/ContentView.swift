@@ -1,3 +1,4 @@
+
 import SwiftUI
 
 struct EntryRowView: View {
@@ -197,11 +198,237 @@ struct LinksView: View {
 
 struct NotesView: View {
     @ObservedObject var dataStore: DataStore
+    @State private var showFindReplace = false
+    @State private var searchText = ""
+    @State private var replaceText = ""
+    @State private var caseSensitive = false
+    @State private var wholeWords = false
+    @State private var matchCount = 0
+    @State private var currentMatchIndex = 0
+    @State private var matches: [Range<String.Index>] = []
+    @State private var isPerformingReplace = false
+    @State private var skipClearMatches = false
+
     
     var body: some View {
-        TextEditor(text: $dataStore.notesText)
-            .font(.system(size: 14))
-            .padding()
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        ZStack(alignment: .topTrailing) {
+            TextEditor(text: $dataStore.notesText)
+                .font(.system(size: 14))
+                .padding()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .overlay(
+                    Group {
+                        if matchCount > 0 {
+                            Text("\(currentMatchIndex + 1)/\(matchCount)")
+                                .padding(4)
+                                .background(Color.secondary.opacity(0.2))
+                                .cornerRadius(4)
+                                .padding(.trailing, 8)
+                        }
+                    },
+                    alignment: .bottomTrailing
+                )
+            
+            if showFindReplace {
+                findReplacePanel
+                    .transition(.move(edge: .top))
+                    .padding()
+            }
+        }
+        .animation(.easeInOut, value: showFindReplace)
+        .onChange(of: dataStore.notesText) { _ in
+//            print("Text changed, isPerformingReplace: \(isPerformingReplace)")
+            if skipClearMatches {
+                // Skip clearing matches for programmatic changes.
+                return
+            }
+            clearMatches()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: Notification.Name("ShowFindReplace"))) { _ in
+            showFindReplace = true
+        }
+    }
+    
+    private var findReplacePanel: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                TextField("Find", text: $searchText)
+                    .textFieldStyle(.roundedBorder)
+                    .onSubmit(findNext)
+                
+                TextField("Replace", text: $replaceText)
+                    .textFieldStyle(.roundedBorder)
+                    .onSubmit(replaceNext)
+            }
+            
+            HStack {
+                Toggle("Case Sensitive", isOn: $caseSensitive)
+                    .toggleStyle(.checkbox)
+                
+                Toggle("Whole Words", isOn: $wholeWords)
+                    .toggleStyle(.checkbox)
+                
+                Spacer()
+                
+                Text(matchCount == 0 ? "No matches" : "\(matchCount) matches")
+                    .foregroundColor(.secondary)
+            }
+            
+            HStack {
+                Button("Replace All", action: replaceAll)
+                    .keyboardShortcut("a", modifiers: [.command, .shift])
+                
+                Spacer()
+                
+                Button("Previous", action: findPrevious)
+                    .keyboardShortcut(.upArrow, modifiers: [.command])
+                
+                Button("Next", action: findNext)
+                    .keyboardShortcut(.downArrow, modifiers: [.command])
+                
+                Button("Replace", action: replaceNext)
+                    .keyboardShortcut(.defaultAction)
+                
+                Button("Close") {
+                    showFindReplace = false
+                    clearMatches()
+                }
+                .keyboardShortcut(.cancelAction)
+            }
+        }
+        .padding()
+        .background(Color(.windowBackgroundColor))
+        .cornerRadius(8)
+        .shadow(radius: 5)
+        .frame(width: 500)
+        .onAppear(perform: findMatches)
+        .onChange(of: searchText) { _ in findMatches() }
+        .onChange(of: caseSensitive) { _ in findMatches() }
+        .onChange(of: wholeWords) { _ in findMatches() }
+    }
+    
+    private func findMatches() {
+        guard !searchText.isEmpty else {
+            clearMatches()
+            return
+        }
+        
+        do {
+            let pattern: String
+            if wholeWords {
+                pattern = "\\b\(NSRegularExpression.escapedPattern(for: searchText))\\b"
+            } else {
+                pattern = NSRegularExpression.escapedPattern(for: searchText)
+            }
+            
+            let options: NSRegularExpression.Options = caseSensitive ? [] : .caseInsensitive
+            let regex = try NSRegularExpression(pattern: pattern, options: options)
+            let nsString = dataStore.notesText as NSString
+            let results = regex.matches(in: dataStore.notesText,
+                                      range: NSRange(location: 0, length: nsString.length))
+            
+            // Convert NSRange to Range<String.Index> safely
+            matches = results.compactMap { result -> Range<String.Index>? in
+                let nsRange = result.range
+                guard nsRange.location != NSNotFound else { return nil }
+                
+                let startUTF16 = dataStore.notesText.utf16.index(
+                    dataStore.notesText.utf16.startIndex,
+                    offsetBy: nsRange.location,
+                    limitedBy: dataStore.notesText.utf16.endIndex
+                )
+                
+                let endUTF16 = dataStore.notesText.utf16.index(
+                    dataStore.notesText.utf16.startIndex,
+                    offsetBy: nsRange.location + nsRange.length,
+                    limitedBy: dataStore.notesText.utf16.endIndex
+                )
+                
+                guard let startUTF16 = startUTF16,
+                      let endUTF16 = endUTF16,
+                      let start = startUTF16.samePosition(in: dataStore.notesText),
+                      let end = endUTF16.samePosition(in: dataStore.notesText)
+                else {
+                    return nil
+                }
+                
+                return start..<end
+            }
+            
+            matchCount = matches.count
+            let _ = print(currentMatchIndex)
+            currentMatchIndex = matches.isEmpty ? -1 : 0
+            let _ = print(currentMatchIndex)
+
+        } catch {
+            clearMatches()
+        }
+    }
+    
+    private func clearMatches() {
+        let _ = print(currentMatchIndex)
+        matches = []
+        matchCount = 0
+        currentMatchIndex = -1
+        let _ = print(currentMatchIndex)
+
+    }
+    private func findNext() {
+        guard !matches.isEmpty else { return }
+        currentMatchIndex = (currentMatchIndex + 1) % matches.count
+    }
+    
+    private func findPrevious() {
+        guard !matches.isEmpty else { return }
+        currentMatchIndex = (currentMatchIndex - 1 + matches.count) % matches.count
+    }
+    
+    private func replaceNext() {
+        guard !matches.isEmpty else { return }
+        
+        // Prevent the onChange from clearing the matches during this programmatic change.
+        skipClearMatches = true
+        defer {
+            // Re-enable clearing on subsequent user edits.
+            DispatchQueue.main.async {
+                skipClearMatches = false
+            }
+        }
+        
+        // Get current match before modifying text
+        let originalMatch = matches[currentMatchIndex]
+//        print(originalMatch)
+//        print(matches[currentMatchIndex])
+//        print(currentMatchIndex)
+        
+        // Perform replacement
+        var text = dataStore.notesText
+        text.replaceSubrange(originalMatch, with: replaceText)
+        dataStore.notesText = text
+        
+        // Update the matches for the modified text
+        findMatches()
+        
+        // Adjust currentMatchIndex if needed
+        if !matches.isEmpty {
+            currentMatchIndex = min(currentMatchIndex, matches.count - 1)
+        } else {
+            currentMatchIndex = -1
+        }
+        
+//        print(currentMatchIndex)
+    }
+
+    
+    private func replaceAll() {
+        guard !matches.isEmpty else { return }
+        
+        var text = dataStore.notesText
+        for range in matches.reversed() {
+            text.replaceSubrange(range, with: replaceText)
+        }
+        dataStore.notesText = text
+        clearMatches()
     }
 }
+
