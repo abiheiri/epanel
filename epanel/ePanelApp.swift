@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import UniformTypeIdentifiers
 
 @main
 struct ePanelApp: App {
@@ -13,18 +14,21 @@ struct ePanelApp: App {
         .commands {
             // Remove only the default "New" command.
             CommandGroup(replacing: .newItem) { }
-            
+
             CommandGroup(before: .saveItem) {
                 Button("Open…") { openFile() }
                     .keyboardShortcut("o", modifiers: .command)
-                
+
                 Divider()
-                
-                Button("Export…") { exportFile() }
+
+                Button("Export as JSON…") { exportJSON() }
                     .keyboardShortcut("e", modifiers: .command)
+
+                Button("Export as CSV…") { exportCSV() }
+                    .keyboardShortcut("e", modifiers: [.command, .shift])
             }
-            
-            
+
+
             CommandGroup(replacing: .help) {
                 Button("ePanel Help") {
                     if let url = URL(string: "https://github.com/abiheiri/epanel/blob/main/README.md") {
@@ -34,22 +38,33 @@ struct ePanelApp: App {
             }
         }
     }
-    
+
     private func openFile() {
         let panel = NSOpenPanel()
-        panel.allowedContentTypes = [.commaSeparatedText]
+        panel.allowedContentTypes = [.json, .commaSeparatedText]
         panel.begin { response in
             guard response == .OK, let url = panel.url else { return }
-            dataStore.importEntries(from: url)
+            dataStore.importFile(from: url)
         }
     }
-    
-    private func exportFile() {
+
+    private func exportJSON() {
         let panel = NSSavePanel()
+        panel.allowedContentTypes = [.json]
+        panel.nameFieldStringValue = "epanel.json"
+        panel.begin { response in
+            guard response == .OK, let url = panel.url else { return }
+            dataStore.exportJSON(to: url)
+        }
+    }
+
+    private func exportCSV() {
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.commaSeparatedText]
         panel.nameFieldStringValue = "epanel.csv"
         panel.begin { response in
             guard response == .OK, let url = panel.url else { return }
-            dataStore.exportEntries(to: url)
+            dataStore.exportCSV(to: url)
         }
     }
 }

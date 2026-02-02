@@ -63,8 +63,8 @@ struct LinksView: View {
 
     private func updateFilteredEntries() {
         let entries = searchFilter.isEmpty
-            ? dataStore.entries
-            : dataStore.entries.filter { $0.text.localizedCaseInsensitiveContains(searchFilter) }
+            ? dataStore.data.rootEntries
+            : dataStore.data.rootEntries.filter { $0.text.localizedCaseInsensitiveContains(searchFilter) }
 
         cachedFilteredEntries = entries.sorted {
             isAscending ? $0.text < $1.text : $0.text > $1.text
@@ -126,7 +126,7 @@ struct LinksView: View {
             .environment(\.defaultMinListRowHeight, 30)
             .onCopyCommand {
                 guard let selectedID = selectedEntryID,
-                      let entry = dataStore.entries.first(where: { $0.id == selectedID })
+                      let entry = dataStore.data.rootEntries.first(where: { $0.id == selectedID })
                 else { return [] }
                 let itemProvider = NSItemProvider(object: entry.text as NSString)
                 return [itemProvider]
@@ -142,7 +142,7 @@ struct LinksView: View {
         .onAppear {
             updateFilteredEntries()
         }
-        .onChange(of: dataStore.entries) { _ in
+        .onChange(of: dataStore.data.rootEntries) { _ in
             updateFilteredEntries()
         }
         .onChange(of: searchFilter) { _ in
@@ -156,25 +156,25 @@ struct LinksView: View {
     private func addEntry() {
         guard !textInput.isEmpty else { return }
         let newEntry = Entry(text: textInput, date: Date())
-        dataStore.entries.append(newEntry)
+        dataStore.data.rootEntries.append(newEntry)
         selectedEntryID = newEntry.id
         textInput = ""
         searchFilter = ""
         isTextFieldFocused = false
     }
-    
+
     private func deleteEntry(_ entry: Entry) {
-        if let index = dataStore.entries.firstIndex(where: { $0.id == entry.id }) {
-            dataStore.entries.remove(at: index)
+        if let index = dataStore.data.rootEntries.firstIndex(where: { $0.id == entry.id }) {
+            dataStore.data.rootEntries.remove(at: index)
         }
         if selectedEntryID == entry.id {
             selectedEntryID = nil
         }
     }
-    
+
     private func deleteSelectedEntry() {
         guard let selectedId = selectedEntryID,
-              let entry = dataStore.entries.first(where: { $0.id == selectedId })
+              let entry = dataStore.data.rootEntries.first(where: { $0.id == selectedId })
         else { return }
         deleteEntry(entry)
     }
@@ -212,9 +212,9 @@ struct LinksView: View {
 
 struct NotesView: View {
     @ObservedObject var dataStore: DataStore
-    
+
     var body: some View {
-        TextEditor(text: $dataStore.notesText)
+        TextEditor(text: $dataStore.data.notes)
             .font(.system(size: 14))
             .padding()
             .frame(maxWidth: .infinity, maxHeight: .infinity)
