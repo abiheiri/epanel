@@ -188,9 +188,12 @@ class DataStore: ObservableObject {
     func importFile(from url: URL) {
         let ext = url.pathExtension.lowercased()
 
-        if ext == "json" {
+        switch ext {
+        case "json":
             importJSON(from: url)
-        } else {
+        case "plist":
+            importSafariBookmarks(from: url)
+        default:
             importCSV(from: url)
         }
     }
@@ -249,6 +252,105 @@ class DataStore: ObservableObject {
 
         } catch {
             showAlert(message: "Failed to read CSV file: \(error.localizedDescription)")
+        }
+    }
+
+    // MARK: - Safari Bookmarks Import
+
+    private func importSafariBookmarks(from url: URL) {
+        do {
+            let plistData = try Data(contentsOf: url)
+            guard let plist = try PropertyListSerialization.propertyList(from: plistData, options: [], format: nil) as? [String: Any],
+                  let children = plist["Children"] as? [[String: Any]] else {
+                showAlert(message: "Invalid Safari bookmarks file format")
+                return
+            }
+
+            // Convert Safari bookmarks to ePanel folder structure
+            let importedFolder = convertSafariBookmarks(children)
+
+            // Collect all existing URLs for deduplication
+            var existingURLs = Set(allEntries.map { $0.text.lowercased().trimmingCharacters(in: .whitespacesAndNewlines) })
+
+            // Find or create "Imported-Safari" folder
+            if let existingIndex = data.folders.firstIndex(where: { $0.name == "Imported-Safari" }) {
+                // Merge into existing folder
+                var stats = ImportStats()
+                mergeFolder(importedFolder, into: &data.folders[existingIndex], existingURLs: &existingURLs, stats: &stats)
+                showAlert(message: "Merged into 'Imported-Safari': \(stats.entriesAdded) new entries, \(stats.foldersAdded) new folders. \(stats.duplicatesSkipped) duplicates skipped.")
+            } else {
+                // Create new folder with deduplication
+                var stats = ImportStats()
+                var newFolder = Folder(name: "Imported-Safari")
+                mergeFolder(importedFolder, into: &newFolder, existingURLs: &existingURLs, stats: &stats)
+                data.folders.insert(newFolder, at: 0)
+                showAlert(message: "Created 'Imported-Safari' with \(stats.entriesAdded) entries and \(stats.foldersAdded) folders. \(stats.duplicatesSkipped) duplicates skipped.")
+            }
+
+        } catch {
+            showAlert(message: "Failed to read Safari bookmarks: \(error.localizedDescription)")
+        }
+    }
+
+    private struct ImportStats {
+        var entriesAdded = 0
+        var foldersAdded = 0
+        var duplicatesSkipped = 0
+    }
+
+    private func convertSafariBookmarks(_ children: [[String: Any]]) -> Folder {
+        var folder = Folder(name: "")
+
+        for child in children {
+            let bookmarkType = child["WebBookmarkType"] as? String ?? ""
+            let title = child["Title"] as? String ?? ""
+
+            if bookmarkType == "WebBookmarkTypeLeaf" {
+                // This is a bookmark entry
+                if let urlString = child["URLString"] as? String ?? child["URL"] as? String,
+                   !urlString.isEmpty {
+                    let entry = Entry(text: urlString, date: Date())
+                    folder.entries.append(entry)
+                }
+            } else if bookmarkType == "WebBookmarkTypeList" {
+                // This is a folder
+                if let subChildren = child["Children"] as? [[String: Any]] {
+                    var subfolder = convertSafariBookmarks(subChildren)
+                    subfolder.name = title.isEmpty ? "Untitled Folder" : title
+                    folder.subfolders.append(subfolder)
+                }
+            }
+        }
+
+        return folder
+    }
+
+    private func mergeFolder(_ source: Folder, into target: inout Folder, existingURLs: inout Set<String>, stats: inout ImportStats) {
+        // Add entries that don't already exist
+        for entry in source.entries {
+            let normalizedURL = entry.text.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+            if !existingURLs.contains(normalizedURL) {
+                target.entries.append(entry)
+                existingURLs.insert(normalizedURL)
+                stats.entriesAdded += 1
+            } else {
+                stats.duplicatesSkipped += 1
+            }
+        }
+
+        // Merge subfolders
+        for sourceSubfolder in source.subfolders {
+            let normalizedName = sourceSubfolder.name.lowercased()
+            if let existingIndex = target.subfolders.firstIndex(where: { $0.name.lowercased() == normalizedName }) {
+                // Folder exists - merge recursively
+                mergeFolder(sourceSubfolder, into: &target.subfolders[existingIndex], existingURLs: &existingURLs, stats: &stats)
+            } else {
+                // Folder doesn't exist - add it (with deduplication for its contents)
+                var newSubfolder = Folder(name: sourceSubfolder.name)
+                mergeFolder(sourceSubfolder, into: &newSubfolder, existingURLs: &existingURLs, stats: &stats)
+                target.subfolders.append(newSubfolder)
+                stats.foldersAdded += 1
+            }
         }
     }
 

@@ -19,6 +19,9 @@ struct ePanelApp: App {
                 Button("Open…") { openFile() }
                     .keyboardShortcut("o", modifiers: .command)
 
+                Button("Import from Safari") { importFromSafari() }
+                    .keyboardShortcut("i", modifiers: [.command, .shift])
+
                 Divider()
 
                 Button("Export as JSON…") { exportJSON() }
@@ -45,6 +48,36 @@ struct ePanelApp: App {
         panel.begin { response in
             guard response == .OK, let url = panel.url else { return }
             dataStore.importFile(from: url)
+        }
+    }
+
+    private func importFromSafari() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.propertyList]
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.message = "Select your Safari Bookmarks.plist file"
+        panel.prompt = "Import"
+
+        // Try to set initial directory to Safari folder (~/Library/Safari)
+        if let libraryURL = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask).first {
+            panel.directoryURL = libraryURL.appendingPathComponent("Safari")
+        }
+
+        panel.begin { response in
+            guard response == .OK, let url = panel.url else { return }
+
+            // Confirm before importing
+            let alert = NSAlert()
+            alert.messageText = "Import from Safari?"
+            alert.informativeText = "This will import bookmarks into an 'Imported-Safari' folder. Duplicates will be skipped."
+            alert.addButton(withTitle: "Import")
+            alert.addButton(withTitle: "Cancel")
+
+            if alert.runModal() == .alertFirstButtonReturn {
+                self.dataStore.importFile(from: url)
+            }
         }
     }
 
