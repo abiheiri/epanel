@@ -59,13 +59,14 @@ struct LinksView: View {
     @State private var selectedEntryID: UUID?
     @FocusState private var isTextFieldFocused: Bool
     @State private var isAscending = true
+    @State private var cachedFilteredEntries: [Entry] = []
 
-    var filteredEntries: [Entry] {
+    private func updateFilteredEntries() {
         let entries = searchFilter.isEmpty
             ? dataStore.entries
             : dataStore.entries.filter { $0.text.localizedCaseInsensitiveContains(searchFilter) }
-        
-        return entries.sorted {
+
+        cachedFilteredEntries = entries.sorted {
             isAscending ? $0.text < $1.text : $0.text > $1.text
         }
     }
@@ -109,7 +110,7 @@ struct LinksView: View {
                 .background(Color(NSColor.controlBackgroundColor))
                 .listRowBackground(Color.clear)
 
-                ForEach(filteredEntries) { entry in
+                ForEach(cachedFilteredEntries) { entry in
                     EntryRowView(
                         entry: entry,
                         isSelected: selectedEntryID == entry.id,
@@ -138,6 +139,18 @@ struct LinksView: View {
             .keyboardShortcut(.delete, modifiers: [.command])
             .frame(width: 0, height: 0)
         )
+        .onAppear {
+            updateFilteredEntries()
+        }
+        .onChange(of: dataStore.entries) { _ in
+            updateFilteredEntries()
+        }
+        .onChange(of: searchFilter) { _ in
+            updateFilteredEntries()
+        }
+        .onChange(of: isAscending) { _ in
+            updateFilteredEntries()
+        }
     }
     
     private func addEntry() {
@@ -151,7 +164,9 @@ struct LinksView: View {
     }
     
     private func deleteEntry(_ entry: Entry) {
-        dataStore.entries.removeAll { $0 == entry }
+        if let index = dataStore.entries.firstIndex(where: { $0.id == entry.id }) {
+            dataStore.entries.remove(at: index)
+        }
         if selectedEntryID == entry.id {
             selectedEntryID = nil
         }

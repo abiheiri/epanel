@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <Scheme
-   LastUpgradeVersion = "1620"
+   LastUpgradeVersion = "2620"
    version = "1.7">
    <BuildAction
       parallelizeBuildables = "YES"
@@ -18,7 +18,7 @@
                BlueprintIdentifier = "61643B562D4D77FA00ABC380"
                BuildableName = "ePanel.app"
                BlueprintName = "ePanel"
-               ReferencedContainer = "container:ePanel.xcodeproj">
+               ReferencedContainer = "container:epanel.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
       </BuildActionEntries>
@@ -38,7 +38,7 @@
                BlueprintIdentifier = "61643B672D4D77FB00ABC380"
                BuildableName = "ePanelTests.xctest"
                BlueprintName = "ePanelTests"
-               ReferencedContainer = "container:ePanel.xcodeproj">
+               ReferencedContainer = "container:epanel.xcodeproj">
             </BuildableReference>
          </TestableReference>
          <TestableReference
@@ -49,7 +49,7 @@
                BlueprintIdentifier = "61643B712D4D77FB00ABC380"
                BuildableName = "ePanelUITests.xctest"
                BlueprintName = "ePanelUITests"
-               ReferencedContainer = "container:ePanel.xcodeproj">
+               ReferencedContainer = "container:epanel.xcodeproj">
             </BuildableReference>
          </TestableReference>
       </Testables>
@@ -71,7 +71,7 @@
             BlueprintIdentifier = "61643B562D4D77FA00ABC380"
             BuildableName = "ePanel.app"
             BlueprintName = "ePanel"
-            ReferencedContainer = "container:ePanel.xcodeproj">
+            ReferencedContainer = "container:epanel.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
    </LaunchAction>
@@ -88,7 +88,7 @@
             BlueprintIdentifier = "61643B562D4D77FA00ABC380"
             BuildableName = "ePanel.app"
             BlueprintName = "ePanel"
-            ReferencedContainer = "container:ePanel.xcodeproj">
+            ReferencedContainer = "container:epanel.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
    </ProfileAction>
