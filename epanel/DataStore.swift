@@ -276,6 +276,270 @@ class DataStore: ObservableObject {
         }
     }
 
+    // MARK: - Folder Operations
+
+    func createFolder(name: String, in parentID: UUID? = nil) {
+        let newFolder = Folder(name: name)
+        if let parentID = parentID {
+            modifyFolder(id: parentID) { folder in
+                folder.subfolders.insert(newFolder, at: 0)
+            }
+        } else {
+            data.folders.insert(newFolder, at: 0)
+        }
+    }
+
+    func renameFolder(id: UUID, to newName: String) {
+        modifyFolder(id: id) { folder in
+            folder.name = newName
+        }
+    }
+
+    func deleteFolder(id: UUID) {
+        // Delete from root folders
+        if let index = data.folders.firstIndex(where: { $0.id == id }) {
+            data.folders.remove(at: index)
+            return
+        }
+        // Delete from nested folders
+        func removeFromSubfolders(_ folders: inout [Folder]) -> Bool {
+            for i in folders.indices {
+                if folders[i].id == id {
+                    folders.remove(at: i)
+                    return true
+                }
+                if removeFromSubfolders(&folders[i].subfolders) {
+                    return true
+                }
+            }
+            return false
+        }
+        _ = removeFromSubfolders(&data.folders)
+    }
+
+    func toggleFolderCollapsed(id: UUID) {
+        modifyFolder(id: id) { folder in
+            folder.isCollapsed.toggle()
+        }
+    }
+
+    private func modifyFolder(id: UUID, modifier: (inout Folder) -> Void) {
+        // Check root folders
+        if let index = data.folders.firstIndex(where: { $0.id == id }) {
+            modifier(&data.folders[index])
+            return
+        }
+        // Check nested folders
+        func modifyInSubfolders(_ folders: inout [Folder]) -> Bool {
+            for i in folders.indices {
+                if folders[i].id == id {
+                    modifier(&folders[i])
+                    return true
+                }
+                if modifyInSubfolders(&folders[i].subfolders) {
+                    return true
+                }
+            }
+            return false
+        }
+        _ = modifyInSubfolders(&data.folders)
+    }
+
+    // MARK: - Entry Operations
+
+    func moveEntry(entryID: UUID, toFolderID: UUID?) {
+        // First, find and remove the entry from its current location
+        var entryToMove: Entry?
+
+        // Check root entries
+        if let index = data.rootEntries.firstIndex(where: { $0.id == entryID }) {
+            entryToMove = data.rootEntries.remove(at: index)
+        } else {
+            // Check folders
+            func removeFromFolders(_ folders: inout [Folder]) -> Entry? {
+                for i in folders.indices {
+                    if let index = folders[i].entries.firstIndex(where: { $0.id == entryID }) {
+                        return folders[i].entries.remove(at: index)
+                    }
+                    if let entry = removeFromFolders(&folders[i].subfolders) {
+                        return entry
+                    }
+                }
+                return nil
+            }
+            entryToMove = removeFromFolders(&data.folders)
+        }
+
+        guard let entry = entryToMove else { return }
+
+        // Add to destination
+        if let folderID = toFolderID {
+            modifyFolder(id: folderID) { folder in
+                folder.entries.append(entry)
+            }
+        } else {
+            data.rootEntries.append(entry)
+        }
+    }
+
+    func deleteEntry(id: UUID) {
+        // Check root entries
+        if let index = data.rootEntries.firstIndex(where: { $0.id == id }) {
+            data.rootEntries.remove(at: index)
+            return
+        }
+        // Check folders
+        func removeFromFolders(_ folders: inout [Folder]) -> Bool {
+            for i in folders.indices {
+                if let index = folders[i].entries.firstIndex(where: { $0.id == id }) {
+                    folders[i].entries.remove(at: index)
+                    return true
+                }
+                if removeFromFolders(&folders[i].subfolders) {
+                    return true
+                }
+            }
+            return false
+        }
+        _ = removeFromFolders(&data.folders)
+    }
+
+    func findEntry(id: UUID) -> Entry? {
+        if let entry = data.rootEntries.first(where: { $0.id == id }) {
+            return entry
+        }
+        func findInFolders(_ folders: [Folder]) -> Entry? {
+            for folder in folders {
+                if let entry = folder.entries.first(where: { $0.id == id }) {
+                    return entry
+                }
+                if let entry = findInFolders(folder.subfolders) {
+                    return entry
+                }
+            }
+            return nil
+        }
+        return findInFolders(data.folders)
+    }
+
+    /// Add entry to a specific folder, or root if folderID is nil
+    func addEntry(_ entry: Entry, toFolderID folderID: UUID?) {
+        if let folderID = folderID {
+            modifyFolder(id: folderID) { folder in
+                folder.entries.append(entry)
+            }
+        } else {
+            data.rootEntries.append(entry)
+        }
+    }
+
+    /// Find the folder ID that contains the given item (entry or folder)
+    /// Returns the folder ID if item is inside a folder, nil if at root
+    func findParentFolderID(for itemID: UUID) -> UUID? {
+        // Check if itemID is a folder - return its ID so entries add to it
+        func findFolder(_ folders: [Folder]) -> UUID? {
+            for folder in folders {
+                if folder.id == itemID {
+                    return folder.id
+                }
+                if let found = findFolder(folder.subfolders) {
+                    return found
+                }
+            }
+            return nil
+        }
+        if let folderID = findFolder(data.folders) {
+            return folderID
+        }
+
+        // Check if itemID is an entry inside a folder - return that folder's ID
+        func findEntryParent(_ folders: [Folder]) -> UUID? {
+            for folder in folders {
+                if folder.entries.contains(where: { $0.id == itemID }) {
+                    return folder.id
+                }
+                if let found = findEntryParent(folder.subfolders) {
+                    return found
+                }
+            }
+            return nil
+        }
+        return findEntryParent(data.folders)
+    }
+
+    /// Move a folder to a new parent (or root if toParentID is nil)
+    func moveFolder(folderID: UUID, toParentID: UUID?) {
+        // Can't move folder into itself or its descendants
+        if let parentID = toParentID {
+            if folderID == parentID || isDescendant(folderID: parentID, of: folderID) {
+                return
+            }
+        }
+
+        // Find and remove the folder from its current location
+        var folderToMove: Folder?
+
+        // Check root folders
+        if let index = data.folders.firstIndex(where: { $0.id == folderID }) {
+            folderToMove = data.folders.remove(at: index)
+        } else {
+            // Check nested folders
+            func removeFromSubfolders(_ folders: inout [Folder]) -> Folder? {
+                for i in folders.indices {
+                    if folders[i].id == folderID {
+                        return folders.remove(at: i)
+                    }
+                    if let folder = removeFromSubfolders(&folders[i].subfolders) {
+                        return folder
+                    }
+                }
+                return nil
+            }
+            folderToMove = removeFromSubfolders(&data.folders)
+        }
+
+        guard let folder = folderToMove else { return }
+
+        // Add to destination
+        if let parentID = toParentID {
+            modifyFolder(id: parentID) { parent in
+                parent.subfolders.insert(folder, at: 0)
+            }
+        } else {
+            data.folders.insert(folder, at: 0)
+        }
+    }
+
+    /// Check if folderID is a descendant (child, grandchild, etc.) of ancestorID
+    func isDescendant(folderID: UUID, of ancestorID: UUID) -> Bool {
+        func checkSubfolders(_ folders: [Folder]) -> Bool {
+            for folder in folders {
+                if folder.id == folderID {
+                    return true
+                }
+                if checkSubfolders(folder.subfolders) {
+                    return true
+                }
+            }
+            return false
+        }
+
+        // Find the ancestor folder and check its subfolders
+        func findAndCheck(_ folders: [Folder]) -> Bool {
+            for folder in folders {
+                if folder.id == ancestorID {
+                    return checkSubfolders(folder.subfolders)
+                }
+                if findAndCheck(folder.subfolders) {
+                    return true
+                }
+            }
+            return false
+        }
+
+        return findAndCheck(data.folders)
+    }
+
     // MARK: - Helpers
 
     private func getDocumentsDirectory() -> URL {

@@ -6,27 +6,8 @@
 	objectVersion = 77;
 	objects = {
 
-/* Begin PBXContainerItemProxy section */
-		61643B692D4D77FB00ABC380 /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = 61643B4F2D4D77FA00ABC380 /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = 61643B562D4D77FA00ABC380;
-			remoteInfo = ePanel;
-		};
-		61643B732D4D77FB00ABC380 /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = 61643B4F2D4D77FA00ABC380 /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = 61643B562D4D77FA00ABC380;
-			remoteInfo = ePanel;
-		};
-/* End PBXContainerItemProxy section */
-
 /* Begin PBXFileReference section */
 		61643B572D4D77FA00ABC380 /* ePanel.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ePanel.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		61643B682D4D77FB00ABC380 /* ePanelTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ePanelTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
-		61643B722D4D77FB00ABC380 /* ePanelUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ePanelUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -39,20 +20,6 @@
 
 /* Begin PBXFrameworksBuildPhase section */
 		61643B542D4D77FA00ABC380 /* Frameworks */ = {
-			isa = PBXFrameworksBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		61643B652D4D77FB00ABC380 /* Frameworks */ = {
-			isa = PBXFrameworksBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		61643B6F2D4D77FB00ABC380 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -74,8 +41,6 @@
 			isa = PBXGroup;
 			children = (
 				61643B572D4D77FA00ABC380 /* ePanel.app */,
-				61643B682D4D77FB00ABC380 /* ePanelTests.xctest */,
-				61643B722D4D77FB00ABC380 /* ePanelUITests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -105,46 +70,6 @@
 			productReference = 61643B572D4D77FA00ABC380 /* ePanel.app */;
 			productType = "com.apple.product-type.application";
 		};
-		61643B672D4D77FB00ABC380 /* ePanelTests */ = {
-			isa = PBXNativeTarget;
-			buildConfigurationList = 61643B7F2D4D77FB00ABC380 /* Build configuration list for PBXNativeTarget "ePanelTests" */;
-			buildPhases = (
-				61643B642D4D77FB00ABC380 /* Sources */,
-				61643B652D4D77FB00ABC380 /* Frameworks */,
-				61643B662D4D77FB00ABC380 /* Resources */,
-			);
-			buildRules = (
-			);
-			dependencies = (
-				61643B6A2D4D77FB00ABC380 /* PBXTargetDependency */,
-			);
-			name = ePanelTests;
-			packageProductDependencies = (
-			);
-			productName = ePanelTests;
-			productReference = 61643B682D4D77FB00ABC380 /* ePanelTests.xctest */;
-			productType = "com.apple.product-type.bundle.unit-test";
-		};
-		61643B712D4D77FB00ABC380 /* ePanelUITests */ = {
-			isa = PBXNativeTarget;
-			buildConfigurationList = 61643B822D4D77FB00ABC380 /* Build configuration list for PBXNativeTarget "ePanelUITests" */;
-			buildPhases = (
-				61643B6E2D4D77FB00ABC380 /* Sources */,
-				61643B6F2D4D77FB00ABC380 /* Frameworks */,
-				61643B702D4D77FB00ABC380 /* Resources */,
-			);
-			buildRules = (
-			);
-			dependencies = (
-				61643B742D4D77FB00ABC380 /* PBXTargetDependency */,
-			);
-			name = ePanelUITests;
-			packageProductDependencies = (
-			);
-			productName = ePanelUITests;
-			productReference = 61643B722D4D77FB00ABC380 /* ePanelUITests.xctest */;
-			productType = "com.apple.product-type.bundle.ui-testing";
-		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -157,14 +82,6 @@
 				TargetAttributes = {
 					61643B562D4D77FA00ABC380 = {
 						CreatedOnToolsVersion = 16.2;
-					};
-					61643B672D4D77FB00ABC380 = {
-						CreatedOnToolsVersion = 16.2;
-						TestTargetID = 61643B562D4D77FA00ABC380;
-					};
-					61643B712D4D77FB00ABC380 = {
-						CreatedOnToolsVersion = 16.2;
-						TestTargetID = 61643B562D4D77FA00ABC380;
 					};
 				};
 			};
@@ -183,28 +100,12 @@
 			projectRoot = "";
 			targets = (
 				61643B562D4D77FA00ABC380 /* ePanel */,
-				61643B672D4D77FB00ABC380 /* ePanelTests */,
-				61643B712D4D77FB00ABC380 /* ePanelUITests */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
 		61643B552D4D77FA00ABC380 /* Resources */ = {
-			isa = PBXResourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		61643B662D4D77FB00ABC380 /* Resources */ = {
-			isa = PBXResourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		61643B702D4D77FB00ABC380 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -221,34 +122,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		61643B642D4D77FB00ABC380 /* Sources */ = {
-			isa = PBXSourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		61643B6E2D4D77FB00ABC380 /* Sources */ = {
-			isa = PBXSourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 /* End PBXSourcesBuildPhase section */
-
-/* Begin PBXTargetDependency section */
-		61643B6A2D4D77FB00ABC380 /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			target = 61643B562D4D77FA00ABC380 /* ePanel */;
-			targetProxy = 61643B692D4D77FB00ABC380 /* PBXContainerItemProxy */;
-		};
-		61643B742D4D77FB00ABC380 /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			target = 61643B562D4D77FA00ABC380 /* ePanel */;
-			targetProxy = 61643B732D4D77FB00ABC380 /* PBXContainerItemProxy */;
-		};
-/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		61643B7A2D4D77FB00ABC380 /* Debug */ = {
@@ -381,7 +255,7 @@
 				CODE_SIGN_ENTITLEMENTS = ePanel/ePanel.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_ASSET_PATHS = "\"ePanel/Preview Content\"";
 				ENABLE_APP_SANDBOX = YES;
@@ -412,7 +286,7 @@
 				CODE_SIGN_ENTITLEMENTS = ePanel/ePanel.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_ASSET_PATHS = "\"ePanel/Preview Content\"";
 				ENABLE_APP_SANDBOX = YES;
@@ -435,74 +309,6 @@
 			};
 			name = Release;
 		};
-		61643B802D4D77FB00ABC380 /* Debug */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				BUNDLE_LOADER = "$(TEST_HOST)";
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
-				DEAD_CODE_STRIPPING = YES;
-				GENERATE_INFOPLIST_FILE = YES;
-				MACOSX_DEPLOYMENT_TARGET = 15.2;
-				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.abiheiri.ePanelTests;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SWIFT_EMIT_LOC_STRINGS = NO;
-				SWIFT_VERSION = 5.0;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/ePanel.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/ePanel";
-			};
-			name = Debug;
-		};
-		61643B812D4D77FB00ABC380 /* Release */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				BUNDLE_LOADER = "$(TEST_HOST)";
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
-				DEAD_CODE_STRIPPING = YES;
-				GENERATE_INFOPLIST_FILE = YES;
-				MACOSX_DEPLOYMENT_TARGET = 15.2;
-				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.abiheiri.ePanelTests;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SWIFT_EMIT_LOC_STRINGS = NO;
-				SWIFT_VERSION = 5.0;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/ePanel.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/ePanel";
-			};
-			name = Release;
-		};
-		61643B832D4D77FB00ABC380 /* Debug */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
-				DEAD_CODE_STRIPPING = YES;
-				GENERATE_INFOPLIST_FILE = YES;
-				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.abiheiri.ePanelUITests;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SWIFT_EMIT_LOC_STRINGS = NO;
-				SWIFT_VERSION = 5.0;
-				TEST_TARGET_NAME = ePanel;
-			};
-			name = Debug;
-		};
-		61643B842D4D77FB00ABC380 /* Release */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
-				DEAD_CODE_STRIPPING = YES;
-				GENERATE_INFOPLIST_FILE = YES;
-				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.abiheiri.ePanelUITests;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SWIFT_EMIT_LOC_STRINGS = NO;
-				SWIFT_VERSION = 5.0;
-				TEST_TARGET_NAME = ePanel;
-			};
-			name = Release;
-		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -520,24 +326,6 @@
 			buildConfigurations = (
 				61643B7D2D4D77FB00ABC380 /* Debug */,
 				61643B7E2D4D77FB00ABC380 /* Release */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
-		};
-		61643B7F2D4D77FB00ABC380 /* Build configuration list for PBXNativeTarget "ePanelTests" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				61643B802D4D77FB00ABC380 /* Debug */,
-				61643B812D4D77FB00ABC380 /* Release */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
-		};
-		61643B822D4D77FB00ABC380 /* Build configuration list for PBXNativeTarget "ePanelUITests" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				61643B832D4D77FB00ABC380 /* Debug */,
-				61643B842D4D77FB00ABC380 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

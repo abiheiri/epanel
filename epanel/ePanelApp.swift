@@ -72,8 +72,19 @@ struct ePanelApp: App {
 class AppDelegate: NSObject, NSApplicationDelegate {
     var statusItem: NSStatusItem?
 
+    override init() {
+        super.init()
+        // Must be set before any windows are created
+        NSWindow.allowsAutomaticWindowTabbing = false
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         DispatchQueue.main.async {
+            // Disable tabbing on all windows
+            for window in NSApp.windows {
+                window.tabbingMode = .disallowed
+            }
+
             if let window = NSApp.windows.first,
                let miniaturizeButton = window.standardWindowButton(.miniaturizeButton) {
                 miniaturizeButton.target = self
