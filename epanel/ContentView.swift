@@ -214,7 +214,7 @@ struct MoveEntrySheet: View {
     @ObservedObject var dataStore: DataStore
     let entryID: UUID
     let dismiss: () -> Void
-    @State private var selectedFolderID: String = "root"
+    @State private var selectedFolderID: UUID = FolderConstants.rootFolderID
 
     var body: some View {
         VStack(spacing: 16) {
@@ -222,9 +222,9 @@ struct MoveEntrySheet: View {
                 .font(.headline)
 
             Picker("Destination", selection: $selectedFolderID) {
-                Text("Unfiled (Root)").tag("root")
+                Text("/").tag(FolderConstants.rootFolderID)
                 ForEach(flattenedFolders, id: \.id) { folder in
-                    Text(folder.name).tag(folder.id.uuidString)
+                    Text(folder.name).tag(folder.id)
                 }
             }
             .pickerStyle(.radioGroup)
@@ -239,8 +239,7 @@ struct MoveEntrySheet: View {
                 Spacer()
 
                 Button("Move") {
-                    let folderUUID = selectedFolderID == "root" ? nil : UUID(uuidString: selectedFolderID)
-                    dataStore.moveEntry(entryID: entryID, toFolderID: folderUUID)
+                    dataStore.moveEntry(entryID: entryID, toFolderID: selectedFolderID)
                     dismiss()
                 }
                 .keyboardShortcut(.defaultAction)
@@ -258,7 +257,7 @@ struct MoveEntrySheet: View {
                 collect(folder.subfolders)
             }
         }
-        collect(dataStore.data.folders)
+        collect(dataStore.data.rootFolder.subfolders)
         return result
     }
 }
@@ -269,7 +268,7 @@ struct MoveFolderSheet: View {
     @ObservedObject var dataStore: DataStore
     let folderID: UUID
     let dismiss: () -> Void
-    @State private var selectedFolderID: String = "root"
+    @State private var selectedFolderID: UUID = FolderConstants.rootFolderID
 
     var body: some View {
         VStack(spacing: 16) {
@@ -277,9 +276,9 @@ struct MoveFolderSheet: View {
                 .font(.headline)
 
             Picker("Destination", selection: $selectedFolderID) {
-                Text("Root").tag("root")
+                Text("/").tag(FolderConstants.rootFolderID)
                 ForEach(validDestinations, id: \.id) { folder in
-                    Text(folder.name).tag(folder.id.uuidString)
+                    Text(folder.name).tag(folder.id)
                 }
             }
             .pickerStyle(.radioGroup)
@@ -294,8 +293,7 @@ struct MoveFolderSheet: View {
                 Spacer()
 
                 Button("Move") {
-                    let folderUUID = selectedFolderID == "root" ? nil : UUID(uuidString: selectedFolderID)
-                    dataStore.moveFolder(folderID: folderID, toParentID: folderUUID)
+                    dataStore.moveFolder(folderID: folderID, toParentID: selectedFolderID)
                     dismiss()
                 }
                 .keyboardShortcut(.defaultAction)
@@ -316,7 +314,7 @@ struct MoveFolderSheet: View {
                 collect(folder.subfolders)
             }
         }
-        collect(dataStore.data.folders)
+        collect(dataStore.data.rootFolder.subfolders)
         return result
     }
 }
@@ -327,7 +325,7 @@ struct NewFolderSheet: View {
     @ObservedObject var dataStore: DataStore
     @Binding var isPresented: Bool
     @State private var folderName = "New Folder"
-    @State private var selectedParentID: UUID?
+    @State private var selectedParentID: UUID = FolderConstants.rootFolderID
     @FocusState private var isNameFieldFocused: Bool
 
     var body: some View {
@@ -340,9 +338,9 @@ struct NewFolderSheet: View {
                 .focused($isNameFieldFocused)
 
             Picker("Location", selection: $selectedParentID) {
-                Text("Root").tag(nil as UUID?)
+                Text("/").tag(FolderConstants.rootFolderID)
                 ForEach(flattenedFolders, id: \.id) { folder in
-                    Text(folder.name).tag(folder.id as UUID?)
+                    Text(folder.name).tag(folder.id)
                 }
             }
             .pickerStyle(.menu)
@@ -380,7 +378,7 @@ struct NewFolderSheet: View {
                 collect(folder.subfolders)
             }
         }
-        collect(dataStore.data.folders)
+        collect(dataStore.data.rootFolder.subfolders)
         return result
     }
 }
@@ -456,6 +454,24 @@ struct LinksView: View {
 
             // Tree List
             List {
+                // Root "/" folder row - clickable to add entries to root
+                HStack {
+                    Image(systemName: "folder")
+                        .foregroundStyle(.secondary)
+                    Text("/")
+                        .fontWeight(.medium)
+                }
+                .padding(.vertical, 2)
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    selectItem(FolderConstants.rootFolderID)
+                }
+                .listRowBackground(
+                    selectedItemID == FolderConstants.rootFolderID
+                        ? Color.accentColor.opacity(0.2)
+                        : Color.clear
+                )
+
                 // Folders section
                 ForEach(filteredFolders) { folder in
                     FolderSection(
@@ -478,56 +494,42 @@ struct LinksView: View {
                     )
                 }
 
-                // Divider if we have both folders and root entries
-                if !dataStore.data.folders.isEmpty && !filteredRootEntries.isEmpty {
-                    Divider()
-                        .padding(.vertical, 4)
+                // Root folder entries (displayed at top level, no special header)
+                ForEach(filteredRootEntries) { entry in
+                    EntryRowView(
+                        entry: entry,
+                        isSelected: selectedItemID == entry.id,
+                        depth: 0,
+                        dateFormatter: dataStore.dateFormatter,
+                        onSelect: { selectItem(entry.id) },
+                        onDoubleTap: { openEntry(entry) },
+                        onGo: { openEntry(entry) },
+                        onDelete: { dataStore.deleteEntry(id: entry.id) },
+                        onMoveTo: {
+                            moveEntryItem = MoveItem(id: entry.id)
+                        }
+                    )
+                    .tag(entry.id)
                 }
-
-                // Root entries section
-                Section {
-                    ForEach(filteredRootEntries) { entry in
-                        EntryRowView(
-                            entry: entry,
-                            isSelected: selectedItemID == entry.id,
-                            depth: 0,
-                            dateFormatter: dataStore.dateFormatter,
-                            onSelect: { selectItem(entry.id) },
-                            onDoubleTap: { openEntry(entry) },
-                            onGo: { openEntry(entry) },
-                            onDelete: { dataStore.deleteEntry(id: entry.id) },
-                            onMoveTo: {
-                                moveEntryItem = MoveItem(id: entry.id)
+            }
+            .onDrop(of: [.plainText], isTargeted: $isRootDropTargeted) { providers in
+                guard let provider = providers.first else { return false }
+                _ = provider.loadObject(ofClass: NSString.self) { item, _ in
+                    guard let dragString = item as? String else { return }
+                    DispatchQueue.main.async {
+                        if dragString.hasPrefix("folder:") {
+                            // Folder drag - move folder to root
+                            let folderIDString = String(dragString.dropFirst(7))
+                            if let folderID = UUID(uuidString: folderIDString) {
+                                dataStore.moveFolder(folderID: folderID, toParentID: FolderConstants.rootFolderID)
                             }
-                        )
-                        .tag(entry.id)
-                    }
-                } header: {
-                    if !dataStore.data.folders.isEmpty && !filteredRootEntries.isEmpty {
-                        Text("Unfiled")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                }
-                .onDrop(of: [.plainText], isTargeted: $isRootDropTargeted) { providers in
-                    guard let provider = providers.first else { return false }
-                    _ = provider.loadObject(ofClass: NSString.self) { item, _ in
-                        guard let dragString = item as? String else { return }
-                        DispatchQueue.main.async {
-                            if dragString.hasPrefix("folder:") {
-                                // Folder drag - move folder to root
-                                let folderIDString = String(dragString.dropFirst(7))
-                                if let folderID = UUID(uuidString: folderIDString) {
-                                    dataStore.moveFolder(folderID: folderID, toParentID: nil)
-                                }
-                            } else if let entryID = UUID(uuidString: dragString) {
-                                // Entry drag - move entry to root
-                                dataStore.moveEntry(entryID: entryID, toFolderID: nil)
-                            }
+                        } else if let entryID = UUID(uuidString: dragString) {
+                            // Entry drag - move entry to root
+                            dataStore.moveEntry(entryID: entryID, toFolderID: FolderConstants.rootFolderID)
                         }
                     }
-                    return true
                 }
+                return true
             }
             .listStyle(.sidebar)
             .environment(\.defaultMinListRowHeight, 28)
@@ -579,16 +581,16 @@ struct LinksView: View {
 
     private var filteredFolders: [Folder] {
         if searchFilter.isEmpty {
-            return dataStore.data.folders
+            return dataStore.data.rootFolder.subfolders
         }
-        return dataStore.data.folders.filter { folderMatchesSearch($0) }
+        return dataStore.data.rootFolder.subfolders.filter { folderMatchesSearch($0) }
     }
 
     private var filteredRootEntries: [Entry] {
         if searchFilter.isEmpty {
-            return dataStore.data.rootEntries
+            return dataStore.data.rootFolder.entries
         }
-        return dataStore.data.rootEntries.filter {
+        return dataStore.data.rootFolder.entries.filter {
             $0.text.localizedCaseInsensitiveContains(searchFilter)
         }
     }
@@ -612,8 +614,8 @@ struct LinksView: View {
         guard !textInput.isEmpty else { return }
         let newEntry = Entry(text: textInput, date: Date())
 
-        // Determine target folder based on selection
-        var targetFolderID: UUID? = nil
+        // Determine target folder based on selection (default to root)
+        var targetFolderID: UUID = FolderConstants.rootFolderID
         if let selectedID = selectedItemID {
             targetFolderID = dataStore.findParentFolderID(for: selectedID)
         }
