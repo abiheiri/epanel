@@ -92,14 +92,6 @@ jobs:
           files: |
             build/ePanel.dmg
             build/ePanel.zip
-          body: |
-            ## ePanel ${{ steps.version.outputs.version }}
-
-            ### Installation
-            1. Download `ePanel.dmg` or `ePanel.zip`
-            2. For DMG: Open the disk image and drag ePanel to Applications
-            3. For ZIP: Extract and move ePanel.app to Applications
-
-            > **Note:** On first launch, you may need to right-click and select "Open" to bypass Gatekeeper since the app is not notarized.
+          body_path: RELEASE_NOTES.md
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
