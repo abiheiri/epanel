@@ -24,16 +24,15 @@ jobs:
         with:
           xcode-version: latest-stable
 
-      - name: Set version from tag
+      - name: Get version from tag
+        id: appversion
         run: |
           if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
-            VERSION="${{ inputs.version }}"
+            RAW="${{ inputs.version }}"
           else
-            VERSION="${GITHUB_REF#refs/tags/}"
+            RAW="${GITHUB_REF#refs/tags/}"
           fi
-          VERSION="${VERSION#v}"
-          cd epanel.xcodeproj
-          agvtool new-marketing-version "$VERSION"
+          echo "version=${RAW#v}" >> $GITHUB_OUTPUT
 
       - name: Build app
         run: |
@@ -45,7 +44,8 @@ jobs:
             archive \
             CODE_SIGN_IDENTITY="-" \
             CODE_SIGNING_REQUIRED=YES \
-            CODE_SIGNING_ALLOWED=YES
+            CODE_SIGNING_ALLOWED=YES \
+            MARKETING_VERSION=${{ steps.appversion.outputs.version }}
 
       - name: Export app from archive
         run: |
