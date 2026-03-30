@@ -749,40 +749,49 @@ class DataStore: ObservableObject {
     }
 
     /// Called by SafariSyncManager on the main thread when file changes are detected.
-    /// Wrapped with isSyncingFromSafari flag to prevent write-back feedback loops.
+    /// Replaces synced folder contents with Safari's current state so that additions
+    /// AND deletions in Safari are reflected. Non-synced folders (my_original_epanel,
+    /// user-created root folders) are untouched.
     func applySafariSync(bookmarkFolders: [Folder], readingList: Folder) {
         isSyncingFromSafari = true
         defer { isSyncingFromSafari = false }
 
-        var existingURLs = Set(allEntries.map { $0.text.lowercased().trimmingCharacters(in: .whitespacesAndNewlines) })
-        var stats = ImportStats()
+        // Capture folder collapsed/expanded state so replacement doesn't lose it
+        var collapsedState: [String: Bool] = [:]
+        func captureState(_ folder: Folder) {
+            collapsedState[folder.name] = folder.isCollapsed
+            for sub in folder.subfolders { captureState(sub) }
+        }
+        for sub in data.rootFolder.subfolders { captureState(sub) }
 
-        // Merge bookmark folders (matches existing folders by name)
-        for sourceFolder in bookmarkFolders {
-            let normalizedName = sourceFolder.name.lowercased()
-            if let idx = data.rootFolder.subfolders.firstIndex(where: { $0.name.lowercased() == normalizedName }) {
-                mergeFolder(sourceFolder, into: &data.rootFolder.subfolders[idx], existingURLs: &existingURLs, stats: &stats)
-            } else {
-                var newFolder = Folder(name: sourceFolder.name)
-                mergeFolder(sourceFolder, into: &newFolder, existingURLs: &existingURLs, stats: &stats)
-                if !newFolder.entries.isEmpty || !newFolder.subfolders.isEmpty {
-                    data.rootFolder.subfolders.append(newFolder)
-                }
+        func restoreState(_ folder: inout Folder) {
+            if let state = collapsedState[folder.name] {
+                folder.isCollapsed = state
+            }
+            for i in folder.subfolders.indices { restoreState(&folder.subfolders[i]) }
+        }
+
+        // Replace each synced bookmark folder with Safari's current version
+        for var safariFolder in bookmarkFolders {
+            restoreState(&safariFolder)
+            if let idx = data.rootFolder.subfolders.firstIndex(where: { $0.name == safariFolder.name }) {
+                data.rootFolder.subfolders[idx] = safariFolder
+            } else if !safariFolder.entries.isEmpty || !safariFolder.subfolders.isEmpty {
+                data.rootFolder.subfolders.append(safariFolder)
             }
         }
 
-        // Merge reading list
+        // Replace Reading List
+        var rl = readingList
+        rl.name = "Reading List"
+        restoreState(&rl)
         if let rlIdx = data.rootFolder.subfolders.firstIndex(where: { $0.name == "Reading List" }) {
-            mergeFolder(readingList, into: &data.rootFolder.subfolders[rlIdx], existingURLs: &existingURLs, stats: &stats)
-        } else if !readingList.entries.isEmpty {
-            var rlFolder = Folder(name: "Reading List")
-            mergeFolder(readingList, into: &rlFolder, existingURLs: &existingURLs, stats: &stats)
-            data.rootFolder.subfolders.insert(rlFolder, at: 0)
+            data.rootFolder.subfolders[rlIdx] = rl
+        } else if !rl.entries.isEmpty {
+            data.rootFolder.subfolders.insert(rl, at: 0)
         }
 
-        if stats.entriesAdded > 0 || stats.foldersAdded > 0 {
-            lastSyncDate = Date()
-        }
+        lastSyncDate = Date()
     }
 
     // MARK: - Helpers
