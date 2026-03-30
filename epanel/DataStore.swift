@@ -74,9 +74,14 @@ class DataStore: ObservableObject {
     }
     @Published var showAlert = false
     @Published var alertMessage = ""
+    @Published var safariSyncEnabled: Bool = false
+    @Published var lastSyncDate: Date?
 
     private var saveDataWorkItem: DispatchWorkItem?
     private let saveQueue = DispatchQueue(label: "com.epanel.save", qos: .utility)
+    private var syncManager: SafariSyncManager?
+
+    private let syncEnabledKey = "safariSyncEnabled"
 
     let dateFormatter: DateFormatter = {
         let formatter = DateFormatter()
@@ -99,11 +104,13 @@ class DataStore: ObservableObject {
 
     init() {
         loadData()
+        loadSyncSettings()
         NotificationCenter.default.addObserver(
             forName: NSApplication.willTerminateNotification,
             object: nil,
             queue: .main
         ) { [weak self] _ in
+            self?.syncManager?.stop()
             self?.saveDataSync()
         }
     }
@@ -645,6 +652,129 @@ class DataStore: ObservableObject {
         }
 
         return findAndCheck(data.rootFolder)
+    }
+
+    // MARK: - Safari Sync
+
+    private func loadSyncSettings() {
+        safariSyncEnabled = UserDefaults.standard.bool(forKey: syncEnabledKey)
+        if safariSyncEnabled {
+            let manager = SafariSyncManager()
+            manager.dataStore = self
+            if let url = manager.resolveBookmark() {
+                syncManager = manager
+                manager.start(with: url)
+            } else {
+                // Bookmark resolution failed; disable sync
+                safariSyncEnabled = false
+                UserDefaults.standard.set(false, forKey: syncEnabledKey)
+            }
+        }
+    }
+
+    func enableSafariSync(bookmarksPlistURL: URL) {
+        let manager = SafariSyncManager()
+        manager.dataStore = self
+
+        guard manager.saveBookmarkData(for: bookmarksPlistURL) else {
+            showAlert(message: "Failed to save file access permission.")
+            return
+        }
+
+        // Move existing content to /my_original_epanel
+        moveExistingContentToOriginalFolder()
+
+        // Full import from Safari
+        let accessed = bookmarksPlistURL.startAccessingSecurityScopedResource()
+        if let (bookmarkFolders, readingList) = manager.performFullImport(from: bookmarksPlistURL) {
+            applyFullSafariImport(bookmarkFolders: bookmarkFolders, readingList: readingList)
+        }
+        if accessed { bookmarksPlistURL.stopAccessingSecurityScopedResource() }
+
+        // Persist setting and start continuous sync
+        safariSyncEnabled = true
+        UserDefaults.standard.set(true, forKey: syncEnabledKey)
+        syncManager = manager
+        manager.start(with: bookmarksPlistURL)
+    }
+
+    func disableSafariSync() {
+        syncManager?.stop()
+        syncManager = nil
+        safariSyncEnabled = false
+        UserDefaults.standard.set(false, forKey: syncEnabledKey)
+    }
+
+    private func moveExistingContentToOriginalFolder() {
+        let hasContent = !data.rootFolder.entries.isEmpty || !data.rootFolder.subfolders.isEmpty
+        guard hasContent else { return }
+
+        // Don't re-migrate if the folder already exists
+        if data.rootFolder.subfolders.contains(where: { $0.name == "my_original_epanel" }) { return }
+
+        let originalFolder = Folder(
+            name: "my_original_epanel",
+            entries: data.rootFolder.entries,
+            subfolders: data.rootFolder.subfolders
+        )
+        data.rootFolder.entries = []
+        data.rootFolder.subfolders = [originalFolder]
+    }
+
+    private func applyFullSafariImport(bookmarkFolders: [Folder], readingList: Folder) {
+        var existingURLs = Set(allEntries.map { $0.text.lowercased().trimmingCharacters(in: .whitespacesAndNewlines) })
+        var stats = ImportStats()
+
+        // Import bookmark folders into root
+        for sourceFolder in bookmarkFolders {
+            var newFolder = Folder(name: sourceFolder.name)
+            mergeFolder(sourceFolder, into: &newFolder, existingURLs: &existingURLs, stats: &stats)
+            if !newFolder.entries.isEmpty || !newFolder.subfolders.isEmpty {
+                data.rootFolder.subfolders.append(newFolder)
+            }
+        }
+
+        // Import reading list as separate root folder
+        if !readingList.entries.isEmpty || !readingList.subfolders.isEmpty {
+            var rlFolder = Folder(name: "Reading List")
+            mergeFolder(readingList, into: &rlFolder, existingURLs: &existingURLs, stats: &stats)
+            data.rootFolder.subfolders.insert(rlFolder, at: 0)
+        }
+
+        lastSyncDate = Date()
+    }
+
+    /// Called by SafariSyncManager on the main thread when file changes are detected
+    func applySafariSync(bookmarkFolders: [Folder], readingList: Folder) {
+        var existingURLs = Set(allEntries.map { $0.text.lowercased().trimmingCharacters(in: .whitespacesAndNewlines) })
+        var stats = ImportStats()
+
+        // Merge bookmark folders (matches existing folders by name)
+        for sourceFolder in bookmarkFolders {
+            let normalizedName = sourceFolder.name.lowercased()
+            if let idx = data.rootFolder.subfolders.firstIndex(where: { $0.name.lowercased() == normalizedName }) {
+                mergeFolder(sourceFolder, into: &data.rootFolder.subfolders[idx], existingURLs: &existingURLs, stats: &stats)
+            } else {
+                var newFolder = Folder(name: sourceFolder.name)
+                mergeFolder(sourceFolder, into: &newFolder, existingURLs: &existingURLs, stats: &stats)
+                if !newFolder.entries.isEmpty || !newFolder.subfolders.isEmpty {
+                    data.rootFolder.subfolders.append(newFolder)
+                }
+            }
+        }
+
+        // Merge reading list
+        if let rlIdx = data.rootFolder.subfolders.firstIndex(where: { $0.name == "Reading List" }) {
+            mergeFolder(readingList, into: &data.rootFolder.subfolders[rlIdx], existingURLs: &existingURLs, stats: &stats)
+        } else if !readingList.entries.isEmpty {
+            var rlFolder = Folder(name: "Reading List")
+            mergeFolder(readingList, into: &rlFolder, existingURLs: &existingURLs, stats: &stats)
+            data.rootFolder.subfolders.insert(rlFolder, at: 0)
+        }
+
+        if stats.entriesAdded > 0 || stats.foldersAdded > 0 {
+            lastSyncDate = Date()
+        }
     }
 
     // MARK: - Helpers

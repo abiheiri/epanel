@@ -19,7 +19,7 @@ struct ePanelApp: App {
                 Button("Open…") { openFile() }
                     .keyboardShortcut("o", modifiers: .command)
 
-                Button("Import from Safari") { importFromSafari() }
+                Button("Import from Safari (One-Time)") { importFromSafari() }
                     .keyboardShortcut("i", modifiers: [.command, .shift])
 
                 Divider()

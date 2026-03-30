@@ -399,6 +399,11 @@ struct ContentView: View {
                 .tabItem {
                     Label("Notes", systemImage: "note.text")
                 }
+
+            SettingsView(dataStore: dataStore)
+                .tabItem {
+                    Label("Settings", systemImage: "gear")
+                }
         }
         .frame(minWidth: 500, minHeight: 400)
         .alert("Notice", isPresented: $dataStore.showAlert) {
@@ -812,5 +817,90 @@ struct NotesView: View {
             .font(.system(size: 14))
             .padding()
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+// MARK: - Settings View
+
+struct SettingsView: View {
+    @ObservedObject var dataStore: DataStore
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Settings")
+                .font(.title2)
+                .fontWeight(.semibold)
+
+            GroupBox("Safari Sync") {
+                VStack(alignment: .leading, spacing: 12) {
+                    Toggle("Sync with Safari", isOn: Binding(
+                        get: { dataStore.safariSyncEnabled },
+                        set: { newValue in
+                            if newValue {
+                                promptForSafariBookmarks()
+                            } else {
+                                dataStore.disableSafariSync()
+                            }
+                        }
+                    ))
+
+                    if dataStore.safariSyncEnabled {
+                        if let lastSync = dataStore.lastSyncDate {
+                            HStack(spacing: 4) {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .foregroundColor(.green)
+                                    .font(.caption)
+                                Text("Last synced: \(lastSync.formatted(date: .abbreviated, time: .shortened))")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+
+                        Text("Safari bookmarks and reading list sync automatically while ePanel is open. Your original ePanel content was moved to the 'my_original_epanel' folder.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    } else {
+                        Text("When enabled, your existing ePanel content will be moved to a 'my_original_epanel' folder. Safari bookmarks will be imported into the root, and Reading List will appear as a separate folder. New Safari additions sync automatically.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                .padding(4)
+            }
+
+            Spacer()
+        }
+        .padding()
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    private func promptForSafariBookmarks() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [UTType.propertyList]
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.message = "Select your Safari Bookmarks.plist file to enable sync"
+        panel.prompt = "Enable Sync"
+
+        if let libraryURL = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask).first {
+            panel.directoryURL = libraryURL.appendingPathComponent("Safari")
+        }
+
+        panel.begin { response in
+            guard response == .OK, let url = panel.url else { return }
+
+            let alert = NSAlert()
+            alert.messageText = "Enable Safari Sync?"
+            alert.informativeText = "Your existing ePanel content will be moved to a 'my_original_epanel' folder. Safari bookmarks and reading list will be imported and kept in sync."
+            alert.addButton(withTitle: "Enable")
+            alert.addButton(withTitle: "Cancel")
+
+            if alert.runModal() == .alertFirstButtonReturn {
+                dataStore.enableSafariSync(bookmarksPlistURL: url)
+            }
+        }
     }
 }
