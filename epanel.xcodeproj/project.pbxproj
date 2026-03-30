@@ -8,13 +8,11 @@
 
 /* Begin PBXBuildFile section */
 		61F0B9FD2F3572810082B477 /* README.md in Resources */ = {isa = PBXBuildFile; fileRef = 61F0B9FB2F3572810082B477 /* README.md */; };
-		61F0B9FE2F3572810082B477 /* RELEASE_NOTES.md in Resources */ = {isa = PBXBuildFile; fileRef = 61F0B9FC2F3572810082B477 /* RELEASE_NOTES.md */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		61643B572D4D77FA00ABC380 /* ePanel.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ePanel.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		61F0B9FB2F3572810082B477 /* README.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = README.md; sourceTree = "<group>"; };
-		61F0B9FC2F3572810082B477 /* RELEASE_NOTES.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = RELEASE_NOTES.md; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -48,7 +46,6 @@
 				61643B592D4D77FA00ABC380 /* ePanel */,
 				61643B582D4D77FA00ABC380 /* Products */,
 				61F0B9FB2F3572810082B477 /* README.md */,
-				61F0B9FC2F3572810082B477 /* RELEASE_NOTES.md */,
 			);
 			sourceTree = "<group>";
 		};
@@ -126,7 +123,6 @@
 			buildActionMask = 2147483647;
 			files = (
 				61F0B9FD2F3572810082B477 /* README.md in Resources */,
-				61F0B9FE2F3572810082B477 /* RELEASE_NOTES.md in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -288,7 +284,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 13.5;
-				MARKETING_VERSION = 2.3;
+				MARKETING_VERSION = 3.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.abiheiri.ePanel;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -319,7 +315,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 13.5;
-				MARKETING_VERSION = 2.3;
+				MARKETING_VERSION = 3.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.abiheiri.ePanel;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
