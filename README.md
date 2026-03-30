@@ -1,37 +1,31 @@
 # ePanel
 
-## Overview
+A lightweight Mac app for managing links, notes, and Safari bookmarks in one place.
 
-ePanel is a Mac app I created to consolidate frequently accessed links and notes in one central panel. I built it because I wanted a single place to organize my web pages, system folder locations, shared drives, and VNC connections, along with a space for quick notes. While Mac's built-in tools work well for many users, I found myself wanting everything in one spot. If you also prefer having your common links and notes unified in a single window, ePanel might be worth trying out.
+## What It Does
 
-The notes tab is intentionally basic - it's designed for quick thoughts and temporary text that you want to keep handy, similar to sticky notes. While it auto-saves your content, it's not meant to replace full-featured note-taking apps. Think of it more as a convenient scratch pad that's always there when you need it.
+- **Links** — Store URLs, file paths, VNC connections, shared drives. Double-click to open.
+- **Folders** — Organize links into nested folders with drag-and-drop.
+- **Notes** — Simple scratch pad that auto-saves. Always there when you need it.
+- **Safari Sync** — Bidirectional sync with Safari bookmarks and reading list. Enable in Settings.
+- **Search** — Instant filtering across all folders and entries.
+- **Import/Export** — JSON, CSV, and one-time Safari bookmark import.
 
-## Features
+## Quick Start
 
-- **Manage Items**: Add via a text box, launch with a double-click, or delete with a right-click.
-- **Open Paths & URLs**: Launch local files or URLs with the right app or Finder.
-- **Search & Filter**: Instantly find items by typing in the search bar.
-- **Auto-Save**: Links tab are saved in `epanel.csv` (CSV format) for easy backup and editing. Notes are saved as `epanel.txt`
+1. Add a link: type in the text field, press Enter
+2. Open a link: double-click it
+3. Organize: right-click for move, rename, delete. Drag to reorder.
+4. Safari sync: go to Settings tab, toggle "Sync with Safari", select your `Bookmarks.plist`
 
-## How It Works
+## Safari Sync
 
-- **Add**: Enter a path/URL, press enter or click 'Add.'
-- **Launch**: Double-click to open with the default app or Finder.
-- **Delete**: Right-click and select 'Delete.'
-- **Search**: Type in the search bar to filter items.
-- **Exit**: Auto-saves to `epanel.csv` on close.
+When enabled, your existing ePanel content moves to a `my_original_epanel` folder. Safari's bookmarks and reading list are imported and kept in sync bidirectionally while the app is open. Changes in either direction are reflected within seconds.
 
-## Data Format
+## Data
 
-Items are stored in a simple, comma-separated text file (`epanel.csv`) for easy manual edits.
+Everything saves to `epanel.json` inside the app's sandboxed container. Auto-saves on every change. Use Export to back up your data.
 
-## Examples
+## Install
 
-- **Apps**: `file:///Applications/TextEdit.app`
-- **Remote**: `vnc://192.168.1.100`
-- **Websites**: `http://www.example.com`
-- **Folders**: `/Volumes/ExternalDrive` opens in Finder
-
----
-
-ePanel is simple, fast, and perfect for quick access to your most-used resources.
+Download from Releases. Since the app is not notarized, macOS will block it. Go to System Settings > Privacy & Security, scroll down, and click "Open Anyway" to allow it.
