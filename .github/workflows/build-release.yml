@@ -24,6 +24,17 @@ jobs:
         with:
           xcode-version: latest-stable
 
+      - name: Set version from tag
+        run: |
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            VERSION="${{ inputs.version }}"
+          else
+            VERSION="${GITHUB_REF#refs/tags/}"
+          fi
+          VERSION="${VERSION#v}"
+          cd epanel.xcodeproj
+          agvtool new-marketing-version "$VERSION"
+
       - name: Build app
         run: |
           xcodebuild -project epanel.xcodeproj \
@@ -92,6 +103,6 @@ jobs:
           files: |
             build/ePanel.dmg
             build/ePanel.zip
-          body_path: RELEASE_NOTES.md
+          body: "Release ePanel ${{ steps.version.outputs.version }}"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
