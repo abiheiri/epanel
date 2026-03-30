@@ -180,6 +180,8 @@ final class SafariSyncManager {
         }
         lastModificationDate = modDate
 
+        // print("handleFileChanged: mod date changed from \(String(describing: lastMod)) to \(modDate)")
+
         // Tier 2: Parse plist and apply changes
         guard let (bookmarkFolders, readingList) = parseSafariPlist(from: url) else { return }
 
@@ -346,7 +348,8 @@ final class SafariSyncManager {
         var newPlist = existingPlist
         newPlist["Children"] = newChildren
 
-        // Write as binary plist (Safari's native format)
+        // This is where the magic sauce writes our structure back as a binary plist
+        // so Safari picks up the changes without any explicit notification
         do {
             let binaryData = try PropertyListSerialization.data(
                 fromPropertyList: newPlist, format: .binary, options: 0

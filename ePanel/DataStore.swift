@@ -771,6 +771,8 @@ class DataStore: ObservableObject {
             for i in folder.subfolders.indices { restoreState(&folder.subfolders[i]) }
         }
 
+        // print("applySafariSync: \(bookmarkFolders.count) bookmark folders, \(readingList.entries.count) reading list entries")
+
         // Replace each synced bookmark folder with Safari's current version
         for var safariFolder in bookmarkFolders {
             restoreState(&safariFolder)
