@@ -32,6 +32,21 @@ struct ePanelApp: App {
             }
 
 
+            CommandGroup(replacing: .appInfo) {
+                Button("About ePanel") {
+                    showCustomAboutPanel()
+                }
+            }
+
+            CommandGroup(after: .saveItem) {
+                Divider()
+                Button("Check for Updates…") {
+                    if let url = URL(string: "https://github.com/abiheiri/epanel/releases/latest") {
+                        NSWorkspace.shared.open(url)
+                    }
+                }
+            }
+
             CommandGroup(replacing: .help) {
                 Button("ePanel Help") {
                     if let url = URL(string: "https://github.com/abiheiri/epanel/blob/main/README.md") {
@@ -89,6 +104,25 @@ struct ePanelApp: App {
             guard response == .OK, let url = panel.url else { return }
             dataStore.exportJSON(to: url)
         }
+    }
+
+    private func showCustomAboutPanel() {
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? ""
+        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? ""
+
+        let linkText = "www.abiheiri.com"
+        let attributed = NSMutableAttributedString(string: linkText)
+        attributed.addAttributes([
+            .link: URL(string: "https://www.abiheiri.com")!,
+            .font: NSFont.systemFont(ofSize: 11)
+        ], range: NSRange(location: 0, length: linkText.count))
+
+        NSApp.orderFrontStandardAboutPanel(options: [
+            .applicationName: "ePanel",
+            .applicationVersion: version,
+            .version: build,
+            .credits: attributed
+        ])
     }
 
     private func exportCSV() {
