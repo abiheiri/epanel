@@ -70,6 +70,9 @@ class DataStore: ObservableObject {
     @Published var data: EPanelData = .empty {
         didSet {
             debouncedSaveData()
+            if safariSyncEnabled && !isSyncingFromSafari {
+                syncManager?.scheduleWriteback()
+            }
         }
     }
     @Published var showAlert = false
@@ -80,6 +83,7 @@ class DataStore: ObservableObject {
     private var saveDataWorkItem: DispatchWorkItem?
     private let saveQueue = DispatchQueue(label: "com.epanel.save", qos: .utility)
     private var syncManager: SafariSyncManager?
+    private var isSyncingFromSafari = false
 
     private let syncEnabledKey = "safariSyncEnabled"
 
@@ -744,8 +748,12 @@ class DataStore: ObservableObject {
         lastSyncDate = Date()
     }
 
-    /// Called by SafariSyncManager on the main thread when file changes are detected
+    /// Called by SafariSyncManager on the main thread when file changes are detected.
+    /// Wrapped with isSyncingFromSafari flag to prevent write-back feedback loops.
     func applySafariSync(bookmarkFolders: [Folder], readingList: Folder) {
+        isSyncingFromSafari = true
+        defer { isSyncingFromSafari = false }
+
         var existingURLs = Set(allEntries.map { $0.text.lowercased().trimmingCharacters(in: .whitespacesAndNewlines) })
         var stats = ImportStats()
 

@@ -260,6 +260,270 @@ final class SafariSyncManager {
         return folder
     }
 
+    // MARK: - Write-back to Safari
+
+    private var writebackWorkItem: DispatchWorkItem?
+
+    /// Schedule a debounced write of ePanel's state back to Safari's Bookmarks.plist.
+    /// Waits 2 seconds after the last call to coalesce rapid changes.
+    func scheduleWriteback() {
+        writebackWorkItem?.cancel()
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self, let dataStore = self.dataStore else { return }
+            let rootFolder = DispatchQueue.main.sync { dataStore.data.rootFolder }
+            self.performWriteback(rootFolder: rootFolder)
+        }
+        writebackWorkItem = workItem
+        queue.asyncAfter(deadline: .now() + 2.0, execute: workItem)
+    }
+
+    private func performWriteback(rootFolder: Folder) {
+        guard let url = bookmarkURL else { return }
+
+        // Read existing plist to preserve Safari's metadata (UUIDs, Sync keys, CloudKit, etc.)
+        guard let existingData = try? Data(contentsOf: url),
+              let existingPlist = try? PropertyListSerialization.propertyList(
+                  from: existingData, options: [], format: nil
+              ) as? [String: Any],
+              let existingChildren = existingPlist["Children"] as? [[String: Any]] else { return }
+
+        // Build lookup maps from existing plist for metadata preservation
+        var urlToLeaf: [String: [String: Any]] = [:]
+        Self.collectLeaves(from: existingChildren, into: &urlToLeaf)
+
+        var titleToFolder: [String: [String: Any]] = [:]
+        Self.collectFolders(from: existingChildren, into: &titleToFolder)
+
+        // Build new Children array
+        var newChildren: [[String: Any]] = []
+
+        // Preserve History proxy and other non-standard top-level entries
+        for child in existingChildren {
+            if (child["WebBookmarkType"] as? String) == "WebBookmarkTypeProxy" {
+                newChildren.append(child)
+            }
+        }
+
+        // Map ePanel folders back to Safari's top-level structure
+        let favoritesFolder = rootFolder.subfolders.first(where: { $0.name == "Favorites" })
+        let bookmarksMenuFolder = rootFolder.subfolders.first(where: { $0.name == "Bookmarks Menu" })
+        let readingListFolder = rootFolder.subfolders.first(where: { $0.name == "Reading List" })
+
+        // Folders that aren't special mappings or the original backup
+        let specialNames: Set<String> = ["Favorites", "Bookmarks Menu", "Reading List", "my_original_epanel"]
+        let otherFolders = rootFolder.subfolders.filter { !specialNames.contains($0.name) }
+
+        // BookmarksBar (Favorites)
+        if let fav = favoritesFolder {
+            newChildren.append(Self.buildSafariFolder(
+                from: fav, safariTitle: "BookmarksBar",
+                urlToLeaf: urlToLeaf, titleToFolder: titleToFolder
+            ))
+        } else if let existing = existingChildren.first(where: { ($0["Title"] as? String) == "BookmarksBar" }) {
+            newChildren.append(existing)
+        }
+
+        // BookmarksMenu — also include other custom ePanel folders and root-level entries
+        let bmEntries = (bookmarksMenuFolder?.entries ?? []) + rootFolder.entries
+        let bmSubfolders = (bookmarksMenuFolder?.subfolders ?? []) + otherFolders
+        let mergedBM = Folder(name: "Bookmarks Menu", entries: bmEntries, subfolders: bmSubfolders)
+        newChildren.append(Self.buildSafariFolder(
+            from: mergedBM, safariTitle: "BookmarksMenu",
+            urlToLeaf: urlToLeaf, titleToFolder: titleToFolder
+        ))
+
+        // Reading List
+        if let rl = readingListFolder {
+            newChildren.append(Self.buildSafariReadingList(
+                from: rl, urlToLeaf: urlToLeaf,
+                existingRL: existingChildren.first(where: { ($0["Title"] as? String) == "com.apple.ReadingList" })
+            ))
+        } else if let existing = existingChildren.first(where: { ($0["Title"] as? String) == "com.apple.ReadingList" }) {
+            newChildren.append(existing)
+        }
+
+        // Reconstruct plist preserving all root-level keys
+        var newPlist = existingPlist
+        newPlist["Children"] = newChildren
+
+        // Write as binary plist (Safari's native format)
+        do {
+            let binaryData = try PropertyListSerialization.data(
+                fromPropertyList: newPlist, format: .binary, options: 0
+            )
+            try binaryData.write(to: url, options: .atomic)
+
+            // Update lastModificationDate so our file monitor skips this change
+            if let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
+               let modDate = attrs[.modificationDate] as? Date {
+                lastModificationDate = modDate
+            }
+        } catch {
+            // Silent failure for background write-back
+        }
+    }
+
+    // MARK: - Plist Construction Helpers
+
+    private static func buildSafariFolder(
+        from folder: Folder,
+        safariTitle: String,
+        urlToLeaf: [String: [String: Any]],
+        titleToFolder: [String: [String: Any]]
+    ) -> [String: Any] {
+        let existing = titleToFolder[safariTitle]
+
+        var dict: [String: Any] = [
+            "WebBookmarkType": "WebBookmarkTypeList",
+            "Title": safariTitle,
+            "WebBookmarkUUID": existing?["WebBookmarkUUID"] as? String ?? UUID().uuidString
+        ]
+
+        // Preserve existing metadata keys (Sync, SyncKey, etc.)
+        if let existing {
+            for (key, value) in existing where key != "Children" && dict[key] == nil {
+                dict[key] = value
+            }
+        }
+
+        var children: [[String: Any]] = []
+        for subfolder in folder.subfolders {
+            children.append(buildSafariSubfolder(from: subfolder, urlToLeaf: urlToLeaf, titleToFolder: titleToFolder))
+        }
+        for entry in folder.entries {
+            children.append(buildSafariLeaf(from: entry, urlToLeaf: urlToLeaf))
+        }
+
+        if !children.isEmpty {
+            dict["Children"] = children
+        }
+        return dict
+    }
+
+    private static func buildSafariSubfolder(
+        from folder: Folder,
+        urlToLeaf: [String: [String: Any]],
+        titleToFolder: [String: [String: Any]]
+    ) -> [String: Any] {
+        let existing = titleToFolder[folder.name]
+
+        var dict: [String: Any] = [
+            "WebBookmarkType": "WebBookmarkTypeList",
+            "Title": folder.name,
+            "WebBookmarkUUID": existing?["WebBookmarkUUID"] as? String ?? UUID().uuidString
+        ]
+
+        if let existing {
+            for (key, value) in existing where key != "Children" && dict[key] == nil {
+                dict[key] = value
+            }
+        }
+
+        var children: [[String: Any]] = []
+        for subfolder in folder.subfolders {
+            children.append(buildSafariSubfolder(from: subfolder, urlToLeaf: urlToLeaf, titleToFolder: titleToFolder))
+        }
+        for entry in folder.entries {
+            children.append(buildSafariLeaf(from: entry, urlToLeaf: urlToLeaf))
+        }
+
+        if !children.isEmpty {
+            dict["Children"] = children
+        }
+        return dict
+    }
+
+    private static func buildSafariLeaf(from entry: Entry, urlToLeaf: [String: [String: Any]]) -> [String: Any] {
+        let normalized = entry.text.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // Reuse existing plist entry to preserve UUID and all metadata
+        if let existing = urlToLeaf[normalized] {
+            return existing
+        }
+
+        // Create a new bookmark entry
+        return [
+            "WebBookmarkType": "WebBookmarkTypeLeaf",
+            "WebBookmarkUUID": UUID().uuidString,
+            "URLString": entry.text,
+            "URIDictionary": ["title": entry.text] as [String: Any]
+        ]
+    }
+
+    private static func buildSafariReadingList(
+        from folder: Folder,
+        urlToLeaf: [String: [String: Any]],
+        existingRL: [String: Any]?
+    ) -> [String: Any] {
+        var dict: [String: Any] = [
+            "WebBookmarkType": "WebBookmarkTypeList",
+            "Title": "com.apple.ReadingList",
+            "WebBookmarkUUID": existingRL?["WebBookmarkUUID"] as? String ?? UUID().uuidString
+        ]
+
+        if let existingRL {
+            for (key, value) in existingRL where key != "Children" && dict[key] == nil {
+                dict[key] = value
+            }
+        }
+
+        var children: [[String: Any]] = []
+        for entry in folder.entries {
+            let normalized = entry.text.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+            if let existing = urlToLeaf[normalized] {
+                children.append(existing)
+            } else {
+                children.append([
+                    "WebBookmarkType": "WebBookmarkTypeLeaf",
+                    "WebBookmarkUUID": UUID().uuidString,
+                    "URLString": entry.text,
+                    "URIDictionary": ["title": entry.text] as [String: Any],
+                    "ReadingList": [
+                        "DateAdded": entry.date,
+                        "PreviewText": ""
+                    ] as [String: Any],
+                    "ReadingListNonSync": [
+                        "neverFetchMetadata": false
+                    ] as [String: Any]
+                ] as [String: Any])
+            }
+        }
+
+        if !children.isEmpty {
+            dict["Children"] = children
+        }
+        return dict
+    }
+
+    // MARK: - Plist Traversal Helpers
+
+    /// Builds a map of normalized URL → full plist leaf entry for metadata preservation
+    private static func collectLeaves(from children: [[String: Any]], into map: inout [String: [String: Any]]) {
+        for child in children {
+            let type = child["WebBookmarkType"] as? String ?? ""
+            if type == "WebBookmarkTypeLeaf", let url = child["URLString"] as? String {
+                let normalized = url.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+                map[normalized] = child
+            } else if type == "WebBookmarkTypeList", let sub = child["Children"] as? [[String: Any]] {
+                collectLeaves(from: sub, into: &map)
+            }
+        }
+    }
+
+    /// Builds a map of folder title → full plist folder entry for UUID/metadata preservation
+    private static func collectFolders(from children: [[String: Any]], into map: inout [String: [String: Any]]) {
+        for child in children {
+            if (child["WebBookmarkType"] as? String) == "WebBookmarkTypeList" {
+                if let title = child["Title"] as? String {
+                    map[title] = child
+                }
+                if let sub = child["Children"] as? [[String: Any]] {
+                    collectFolders(from: sub, into: &map)
+                }
+            }
+        }
+    }
+
     deinit {
         stop()
     }
