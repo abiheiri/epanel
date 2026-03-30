@@ -41,9 +41,7 @@ struct ePanelApp: App {
             CommandGroup(after: .saveItem) {
                 Divider()
                 Button("Check for Updates…") {
-                    if let url = URL(string: "https://github.com/abiheiri/epanel/releases/latest") {
-                        NSWorkspace.shared.open(url)
-                    }
+                    checkForUpdates()
                 }
             }
 
@@ -104,6 +102,57 @@ struct ePanelApp: App {
             guard response == .OK, let url = panel.url else { return }
             dataStore.exportJSON(to: url)
         }
+    }
+
+    private func checkForUpdates() {
+        let currentVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0"
+        let apiURL = URL(string: "https://api.github.com/repos/abiheiri/epanel/releases/latest")!
+
+        var request = URLRequest(url: apiURL)
+        request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
+
+        URLSession.shared.dataTask(with: request) { data, response, error in
+            DispatchQueue.main.async {
+                if let error {
+                    let alert = NSAlert()
+                    alert.messageText = "Update Check Failed"
+                    alert.informativeText = "Could not reach GitHub: \(error.localizedDescription)"
+                    alert.runModal()
+                    return
+                }
+
+                guard let data,
+                      let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                      let tagName = json["tag_name"] as? String,
+                      let htmlURL = json["html_url"] as? String else {
+                    let alert = NSAlert()
+                    alert.messageText = "Update Check Failed"
+                    alert.informativeText = "Could not parse release information."
+                    alert.runModal()
+                    return
+                }
+
+                let latestVersion = tagName.trimmingCharacters(in: CharacterSet(charactersIn: "vV"))
+
+                if latestVersion.compare(currentVersion, options: .numeric) == .orderedDescending {
+                    let alert = NSAlert()
+                    alert.messageText = "Update Available"
+                    alert.informativeText = "ePanel \(latestVersion) is available. You are running \(currentVersion)."
+                    alert.addButton(withTitle: "Download")
+                    alert.addButton(withTitle: "Later")
+                    if alert.runModal() == .alertFirstButtonReturn {
+                        if let url = URL(string: htmlURL) {
+                            NSWorkspace.shared.open(url)
+                        }
+                    }
+                } else {
+                    let alert = NSAlert()
+                    alert.messageText = "You're Up to Date"
+                    alert.informativeText = "ePanel \(currentVersion) is the latest version."
+                    alert.runModal()
+                }
+            }
+        }.resume()
     }
 
     private func showCustomAboutPanel() {
