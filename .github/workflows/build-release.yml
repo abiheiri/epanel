@@ -45,7 +45,8 @@ jobs:
             CODE_SIGN_IDENTITY="-" \
             CODE_SIGNING_REQUIRED=YES \
             CODE_SIGNING_ALLOWED=YES \
-            MARKETING_VERSION=${{ steps.appversion.outputs.version }}
+            MARKETING_VERSION=${{ steps.appversion.outputs.version }} \
+            CURRENT_PROJECT_VERSION=${{ github.run_number }}
 
       - name: Export app from archive
         run: |
