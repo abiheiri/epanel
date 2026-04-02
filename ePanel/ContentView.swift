@@ -14,7 +14,9 @@ struct EntryRowView: View {
     let isSelected: Bool
     let depth: Int
     let dateFormatter: DateFormatter
+    let selectedItemIDs: Set<UUID>
     let onSelect: () -> Void
+    let onCommandSelect: () -> Void
     let onDoubleTap: () -> Void
     let onGo: () -> Void
     let onDelete: () -> Void
@@ -33,7 +35,13 @@ struct EntryRowView: View {
         .padding(.leading, CGFloat(depth) * 16)
         .help("Added on: \(dateFormatter.string(from: entry.date))")
         .contentShape(Rectangle())
-        .onTapGesture { onSelect() }
+        .onTapGesture {
+            if NSEvent.modifierFlags.contains(.command) {
+                onCommandSelect()
+            } else {
+                onSelect()
+            }
+        }
         .simultaneousGesture(
             TapGesture(count: 2)
                 .onEnded { _ in onDoubleTap() }
@@ -47,7 +55,11 @@ struct EntryRowView: View {
         }
         .listRowBackground(isSelected ? Color.accentColor.opacity(0.15) : Color.clear)
         .onDrag {
-            NSItemProvider(object: entry.id.uuidString as NSString)
+            if selectedItemIDs.contains(entry.id) && selectedItemIDs.count > 1 {
+                let payload = selectedItemIDs.map { $0.uuidString }.joined(separator: ",")
+                return NSItemProvider(object: payload as NSString)
+            }
+            return NSItemProvider(object: entry.id.uuidString as NSString)
         }
     }
 }
@@ -61,6 +73,7 @@ struct FolderRowView: View {
     let depth: Int
     @ObservedObject var dataStore: DataStore
     let onSelect: () -> Void
+    let onCommandSelect: () -> Void
     let onToggle: () -> Void
     let onMoveTo: () -> Void
     @Binding var renamingFolderID: UUID?
@@ -120,7 +133,13 @@ struct FolderRowView: View {
         .contentShape(Rectangle())
         .background(isDropTargeted ? Color.accentColor.opacity(0.2) : Color.clear)
         .cornerRadius(4)
-        .onTapGesture { onSelect() }
+        .onTapGesture {
+            if NSEvent.modifierFlags.contains(.command) {
+                onCommandSelect()
+            } else {
+                onSelect()
+            }
+        }
         .simultaneousGesture(
             TapGesture(count: 2)
                 .onEnded { _ in onToggle() }
@@ -166,14 +185,14 @@ struct FolderRowView: View {
                 guard let dragString = item as? String else { return }
                 DispatchQueue.main.async {
                     if dragString.hasPrefix("folder:") {
-                        // Folder drag - move folder into this folder
                         let folderIDString = String(dragString.dropFirst(7))
                         if let folderID = UUID(uuidString: folderIDString) {
                             dataStore.moveFolder(folderID: folderID, toParentID: folder.id)
                         }
-                    } else if let entryID = UUID(uuidString: dragString) {
-                        // Entry drag - move entry into this folder
-                        dataStore.moveEntry(entryID: entryID, toFolderID: folder.id)
+                    } else {
+                        // Entry drag - may be comma-separated for multi-select
+                        let entryIDs = dragString.split(separator: ",").compactMap { UUID(uuidString: String($0)) }
+                        dataStore.moveEntries(entryIDs: entryIDs, toFolderID: folder.id)
                     }
                 }
             }
@@ -240,6 +259,60 @@ struct MoveEntrySheet: View {
 
                 Button("Move") {
                     dataStore.moveEntry(entryID: entryID, toFolderID: selectedFolderID)
+                    dismiss()
+                }
+                .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding()
+        .frame(width: 300)
+    }
+
+    private var flattenedFolders: [Folder] {
+        var result: [Folder] = []
+        func collect(_ folders: [Folder]) {
+            for folder in folders {
+                result.append(folder)
+                collect(folder.subfolders)
+            }
+        }
+        collect(dataStore.data.rootFolder.subfolders)
+        return result
+    }
+}
+
+// MARK: - Move Multiple Entries Sheet
+
+struct MoveEntriesSheet: View {
+    @ObservedObject var dataStore: DataStore
+    let entryIDs: [UUID]
+    let dismiss: () -> Void
+    @State private var selectedFolderID: UUID = FolderConstants.rootFolderID
+
+    var body: some View {
+        VStack(spacing: 16) {
+            Text("Move \(entryIDs.count) Items To")
+                .font(.headline)
+
+            Picker("Destination", selection: $selectedFolderID) {
+                Text("/").tag(FolderConstants.rootFolderID)
+                ForEach(flattenedFolders, id: \.id) { folder in
+                    Text(folder.name).tag(folder.id)
+                }
+            }
+            .pickerStyle(.radioGroup)
+            .labelsHidden()
+
+            HStack {
+                Button("Cancel") {
+                    dismiss()
+                }
+                .keyboardShortcut(.cancelAction)
+
+                Spacer()
+
+                Button("Move") {
+                    dataStore.moveEntries(entryIDs: entryIDs, toFolderID: selectedFolderID)
                     dismiss()
                 }
                 .keyboardShortcut(.defaultAction)
@@ -420,7 +493,7 @@ struct LinksView: View {
     @ObservedObject var dataStore: DataStore
     @State private var textInput = ""
     @State private var searchFilter = ""
-    @State private var selectedItemID: UUID?
+    @State private var selectedItemIDs: Set<UUID> = []
     @FocusState private var isTextFieldFocused: Bool
     @State private var renamingFolderID: UUID?
     @State private var newFolderName = ""
@@ -428,6 +501,7 @@ struct LinksView: View {
     @State private var showNewFolderSheet = false
     @State private var searchExpandedFolders: Set<UUID> = []
     @State private var moveEntryItem: MoveItem?
+    @State private var moveMultipleEntryIDs: [UUID]?
     @State private var moveFolderItem: MoveItem?
 
     var body: some View {
@@ -472,7 +546,7 @@ struct LinksView: View {
                     selectItem(FolderConstants.rootFolderID)
                 }
                 .listRowBackground(
-                    selectedItemID == FolderConstants.rootFolderID
+                    selectedItemIDs.contains(FolderConstants.rootFolderID)
                         ? Color.accentColor.opacity(0.2)
                         : Color.clear
                 )
@@ -485,13 +559,17 @@ struct LinksView: View {
                         dataStore: dataStore,
                         searchFilter: searchFilter,
                         searchExpandedFolders: $searchExpandedFolders,
-                        selectedItemID: $selectedItemID,
+                        selectedItemIDs: $selectedItemIDs,
                         renamingFolderID: $renamingFolderID,
                         newFolderName: $newFolderName,
                         commitRename: commitRename,
                         openEntry: openEntry,
                         showMoveEntry: { entryID in
-                            moveEntryItem = MoveItem(id: entryID)
+                            if selectedItemIDs.count > 1 && selectedItemIDs.contains(entryID) {
+                                moveMultipleEntryIDs = Array(selectedItemIDs)
+                            } else {
+                                moveEntryItem = MoveItem(id: entryID)
+                            }
                         },
                         showMoveFolder: { folderID in
                             moveFolderItem = MoveItem(id: folderID)
@@ -503,15 +581,29 @@ struct LinksView: View {
                 ForEach(filteredRootEntries) { entry in
                     EntryRowView(
                         entry: entry,
-                        isSelected: selectedItemID == entry.id,
+                        isSelected: selectedItemIDs.contains(entry.id),
                         depth: 0,
                         dateFormatter: dataStore.dateFormatter,
+                        selectedItemIDs: selectedItemIDs,
                         onSelect: { selectItem(entry.id) },
+                        onCommandSelect: { toggleSelectItem(entry.id) },
                         onDoubleTap: { openEntry(entry) },
                         onGo: { openEntry(entry) },
-                        onDelete: { dataStore.deleteEntry(id: entry.id) },
+                        onDelete: {
+                            if selectedItemIDs.count > 1 && selectedItemIDs.contains(entry.id) {
+                                dataStore.deleteEntries(ids: selectedItemIDs)
+                                selectedItemIDs.removeAll()
+                            } else {
+                                dataStore.deleteEntry(id: entry.id)
+                                selectedItemIDs.remove(entry.id)
+                            }
+                        },
                         onMoveTo: {
-                            moveEntryItem = MoveItem(id: entry.id)
+                            if selectedItemIDs.count > 1 && selectedItemIDs.contains(entry.id) {
+                                moveMultipleEntryIDs = Array(selectedItemIDs)
+                            } else {
+                                moveEntryItem = MoveItem(id: entry.id)
+                            }
                         }
                     )
                     .tag(entry.id)
@@ -523,14 +615,13 @@ struct LinksView: View {
                     guard let dragString = item as? String else { return }
                     DispatchQueue.main.async {
                         if dragString.hasPrefix("folder:") {
-                            // Folder drag - move folder to root
                             let folderIDString = String(dragString.dropFirst(7))
                             if let folderID = UUID(uuidString: folderIDString) {
                                 dataStore.moveFolder(folderID: folderID, toParentID: FolderConstants.rootFolderID)
                             }
-                        } else if let entryID = UUID(uuidString: dragString) {
-                            // Entry drag - move entry to root
-                            dataStore.moveEntry(entryID: entryID, toFolderID: FolderConstants.rootFolderID)
+                        } else {
+                            let entryIDs = dragString.split(separator: ",").compactMap { UUID(uuidString: String($0)) }
+                            dataStore.moveEntries(entryIDs: entryIDs, toFolderID: FolderConstants.rootFolderID)
                         }
                     }
                 }
@@ -539,14 +630,14 @@ struct LinksView: View {
             .listStyle(.sidebar)
             .environment(\.defaultMinListRowHeight, 28)
             .onCopyCommand {
-                guard let selectedID = selectedItemID,
-                      let entry = dataStore.findEntry(id: selectedID)
-                else { return [] }
-                return [NSItemProvider(object: entry.text as NSString)]
+                let texts = selectedItemIDs.compactMap { dataStore.findEntry(id: $0)?.text }
+                guard !texts.isEmpty else { return [] }
+                let combined = texts.joined(separator: "\n")
+                return [NSItemProvider(object: combined as NSString)]
             }
         }
         .background(
-            Button(action: deleteSelectedItem) {
+            Button(action: deleteSelectedItems) {
                 EmptyView()
             }
             .keyboardShortcut(.delete, modifiers: [.command])
@@ -558,6 +649,14 @@ struct LinksView: View {
         .sheet(item: $moveEntryItem) { item in
             MoveEntrySheet(dataStore: dataStore, entryID: item.id, dismiss: { moveEntryItem = nil })
         }
+        .sheet(isPresented: Binding(
+            get: { moveMultipleEntryIDs != nil },
+            set: { if !$0 { moveMultipleEntryIDs = nil } }
+        )) {
+            if let ids = moveMultipleEntryIDs {
+                MoveEntriesSheet(dataStore: dataStore, entryIDs: ids, dismiss: { moveMultipleEntryIDs = nil })
+            }
+        }
         .sheet(item: $moveFolderItem) { item in
             MoveFolderSheet(dataStore: dataStore, folderID: item.id, dismiss: { moveFolderItem = nil })
         }
@@ -566,11 +665,21 @@ struct LinksView: View {
     // MARK: - Selection & Rename
 
     private func selectItem(_ id: UUID) {
-        // Commit any pending rename before changing selection
         if renamingFolderID != nil && renamingFolderID != id {
             commitRename()
         }
-        selectedItemID = id
+        selectedItemIDs = [id]
+    }
+
+    private func toggleSelectItem(_ id: UUID) {
+        if renamingFolderID != nil && renamingFolderID != id {
+            commitRename()
+        }
+        if selectedItemIDs.contains(id) {
+            selectedItemIDs.remove(id)
+        } else {
+            selectedItemIDs.insert(id)
+        }
     }
 
     private func commitRename() {
@@ -621,21 +730,21 @@ struct LinksView: View {
 
         // Determine target folder based on selection (default to root)
         var targetFolderID: UUID = FolderConstants.rootFolderID
-        if let selectedID = selectedItemID {
+        if let selectedID = selectedItemIDs.first {
             targetFolderID = dataStore.findParentFolderID(for: selectedID)
         }
 
         dataStore.addEntry(newEntry, toFolderID: targetFolderID)
-        selectedItemID = newEntry.id
+        selectedItemIDs = [newEntry.id]
         textInput = ""
         searchFilter = ""
         isTextFieldFocused = false
     }
 
-    private func deleteSelectedItem() {
-        guard let selectedID = selectedItemID else { return }
-        dataStore.deleteEntry(id: selectedID)
-        selectedItemID = nil
+    private func deleteSelectedItems() {
+        guard !selectedItemIDs.isEmpty else { return }
+        dataStore.deleteEntries(ids: selectedItemIDs)
+        selectedItemIDs.removeAll()
     }
 
     private func openEntry(_ entry: Entry) {
@@ -676,7 +785,7 @@ struct FolderSection: View {
     @ObservedObject var dataStore: DataStore
     let searchFilter: String
     @Binding var searchExpandedFolders: Set<UUID>
-    @Binding var selectedItemID: UUID?
+    @Binding var selectedItemIDs: Set<UUID>
     @Binding var renamingFolderID: UUID?
     @Binding var newFolderName: String
     let commitRename: () -> Void
@@ -704,7 +813,7 @@ struct FolderSection: View {
     var body: some View {
         FolderRowView(
             folder: folder,
-            isSelected: selectedItemID == folder.id,
+            isSelected: selectedItemIDs.contains(folder.id),
             isExpanded: shouldShowExpanded,
             depth: depth,
             dataStore: dataStore,
@@ -712,7 +821,17 @@ struct FolderSection: View {
                 if renamingFolderID != nil && renamingFolderID != folder.id {
                     commitRename()
                 }
-                selectedItemID = folder.id
+                selectedItemIDs = [folder.id]
+            },
+            onCommandSelect: {
+                if renamingFolderID != nil && renamingFolderID != folder.id {
+                    commitRename()
+                }
+                if selectedItemIDs.contains(folder.id) {
+                    selectedItemIDs.remove(folder.id)
+                } else {
+                    selectedItemIDs.insert(folder.id)
+                }
             },
             onToggle: {
                 if searchFilter.isEmpty {
@@ -742,7 +861,7 @@ struct FolderSection: View {
                     dataStore: dataStore,
                     searchFilter: searchFilter,
                     searchExpandedFolders: $searchExpandedFolders,
-                    selectedItemID: $selectedItemID,
+                    selectedItemIDs: $selectedItemIDs,
                     renamingFolderID: $renamingFolderID,
                     newFolderName: $newFolderName,
                     commitRename: commitRename,
@@ -756,18 +875,37 @@ struct FolderSection: View {
             ForEach(displayedEntries) { entry in
                 EntryRowView(
                     entry: entry,
-                    isSelected: selectedItemID == entry.id,
+                    isSelected: selectedItemIDs.contains(entry.id),
                     depth: depth + 1,
                     dateFormatter: dataStore.dateFormatter,
+                    selectedItemIDs: selectedItemIDs,
                     onSelect: {
                         if renamingFolderID != nil {
                             commitRename()
                         }
-                        selectedItemID = entry.id
+                        selectedItemIDs = [entry.id]
+                    },
+                    onCommandSelect: {
+                        if renamingFolderID != nil {
+                            commitRename()
+                        }
+                        if selectedItemIDs.contains(entry.id) {
+                            selectedItemIDs.remove(entry.id)
+                        } else {
+                            selectedItemIDs.insert(entry.id)
+                        }
                     },
                     onDoubleTap: { openEntry(entry) },
                     onGo: { openEntry(entry) },
-                    onDelete: { dataStore.deleteEntry(id: entry.id) },
+                    onDelete: {
+                        if selectedItemIDs.count > 1 && selectedItemIDs.contains(entry.id) {
+                            dataStore.deleteEntries(ids: selectedItemIDs)
+                            selectedItemIDs.removeAll()
+                        } else {
+                            dataStore.deleteEntry(id: entry.id)
+                            selectedItemIDs.remove(entry.id)
+                        }
+                    },
                     onMoveTo: { showMoveEntry(entry.id) }
                 )
                 .tag(entry.id)

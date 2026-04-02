@@ -492,6 +492,10 @@ class DataStore: ObservableObject {
     // MARK: - Entry Operations
 
     func moveEntry(entryID: UUID, toFolderID: UUID) {
+        // Skip if already in the target folder
+        let currentParent = findParentFolderID(for: entryID)
+        if currentParent == toFolderID { return }
+
         // Find and remove the entry from its current location
         var entryToMove: Entry?
 
@@ -513,6 +517,18 @@ class DataStore: ObservableObject {
         // Add to destination folder
         modifyFolder(id: toFolderID) { folder in
             folder.entries.append(entry)
+        }
+    }
+
+    func moveEntries(entryIDs: [UUID], toFolderID: UUID) {
+        for entryID in entryIDs {
+            moveEntry(entryID: entryID, toFolderID: toFolderID)
+        }
+    }
+
+    func deleteEntries(ids: Set<UUID>) {
+        for id in ids {
+            deleteEntry(id: id)
         }
     }
 
@@ -603,6 +619,16 @@ class DataStore: ObservableObject {
         if folderID == toParentID || isDescendant(folderID: toParentID, of: folderID) {
             return
         }
+
+        // Skip if already in the target parent
+        func findCurrentParent(_ folder: Folder) -> UUID? {
+            if folder.subfolders.contains(where: { $0.id == folderID }) { return folder.id }
+            for sub in folder.subfolders {
+                if let found = findCurrentParent(sub) { return found }
+            }
+            return nil
+        }
+        if findCurrentParent(data.rootFolder) == toParentID { return }
 
         // Find and remove the folder from its current location
         var folderToMove: Folder?
