@@ -508,18 +508,35 @@ struct LinksView: View {
         VStack(spacing: 0) {
             // Header
             HStack {
-                TextField("Search or Add", text: $textInput)
-                    .focused($isTextFieldFocused)
-                    .textFieldStyle(.roundedBorder)
-                    .onSubmit(addEntry)
-                    .onChange(of: textInput) { newValue in
-                        if isTextFieldFocused {
-                            searchFilter = newValue
-                            // Reset manual expansions when search changes
-                            searchExpandedFolders.removeAll()
+                HStack(spacing: 0) {
+                    TextField("Search or Add", text: $textInput)
+                        .focused($isTextFieldFocused)
+                        .textFieldStyle(.plain)
+                        .onSubmit(addEntry)
+                        .onChange(of: textInput) { newValue in
+                            if isTextFieldFocused {
+                                searchFilter = newValue
+                                searchExpandedFolders.removeAll()
+                            }
                         }
+                    
+                    if !textInput.isEmpty {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundColor(.secondary)
+                            .font(.system(size: 14))
+                            .onTapGesture { clearSearch() }
+                            .padding(.horizontal, 6)
+                            .help("Clear search")
                     }
-                    .frame(maxWidth: .infinity)
+                }
+                .padding(4)
+                .background(Color(NSColor.textBackgroundColor))
+                .cornerRadius(4)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 4)
+                        .stroke(Color(NSColor.separatorColor), lineWidth: 1)
+                )
+                .frame(maxWidth: .infinity)
 
                 Button("Add", action: addEntry)
                     .keyboardShortcut(.defaultAction)
@@ -723,6 +740,12 @@ struct LinksView: View {
     }
 
     // MARK: - Actions
+
+    private func clearSearch() {
+        textInput = ""
+        searchFilter = ""
+        searchExpandedFolders.removeAll()
+    }
 
     private func addEntry() {
         guard !textInput.isEmpty else { return }
