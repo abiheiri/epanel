@@ -24,8 +24,16 @@ When enabled, your existing ePanel content moves to a `my_original_epanel` folde
 
 ## Data
 
-Everything saves to `epanel.json` inside the app's sandboxed container. Auto-saves on every change. Use Export to back up your data.
+Everything saves to `epanel.json` inside the app's sandboxed container. Auto-saves on every change. Use the export option to back up your data.
 
 ## Install
 
-Download from Releases. Since the app is not notarized, macOS will block it. Go to System Settings > Privacy & Security, scroll down, and click "Open Anyway" to allow it.
+Since the app is not notarized, macOS will block it. 
+
+Go to System Settings > Privacy & Security, scroll down, and click "Open Anyway" to allow it. 
+
+Or in your Terminal, run:
+
+```bash
+xattr -dr com.apple.quarantine /Applications/ePanel.app
+```
