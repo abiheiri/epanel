@@ -7,6 +7,11 @@ struct MoveItem: Identifiable {
     let id: UUID
 }
 
+struct AddEntryItem: Identifiable {
+    let id: UUID
+    let text: String
+}
+
 // MARK: - Entry Row View
 
 struct EntryRowView: View {
@@ -240,14 +245,7 @@ struct MoveEntrySheet: View {
             Text("Move Entry To")
                 .font(.headline)
 
-            Picker("Destination", selection: $selectedFolderID) {
-                Text("/").tag(FolderConstants.rootFolderID)
-                ForEach(flattenedFolders, id: \.id) { folder in
-                    Text(folder.name).tag(folder.id)
-                }
-            }
-            .pickerStyle(.radioGroup)
-            .labelsHidden()
+            FolderDestinationPicker(dataStore: dataStore, selectedFolderID: $selectedFolderID, excludedIDs: [])
 
             HStack {
                 Button("Cancel") {
@@ -265,19 +263,7 @@ struct MoveEntrySheet: View {
             }
         }
         .padding()
-        .frame(width: 300)
-    }
-
-    private var flattenedFolders: [Folder] {
-        var result: [Folder] = []
-        func collect(_ folders: [Folder]) {
-            for folder in folders {
-                result.append(folder)
-                collect(folder.subfolders)
-            }
-        }
-        collect(dataStore.data.rootFolder.subfolders)
-        return result
+        .frame(width: 320)
     }
 }
 
@@ -294,14 +280,7 @@ struct MoveEntriesSheet: View {
             Text("Move \(entryIDs.count) Items To")
                 .font(.headline)
 
-            Picker("Destination", selection: $selectedFolderID) {
-                Text("/").tag(FolderConstants.rootFolderID)
-                ForEach(flattenedFolders, id: \.id) { folder in
-                    Text(folder.name).tag(folder.id)
-                }
-            }
-            .pickerStyle(.radioGroup)
-            .labelsHidden()
+            FolderDestinationPicker(dataStore: dataStore, selectedFolderID: $selectedFolderID, excludedIDs: [])
 
             HStack {
                 Button("Cancel") {
@@ -319,19 +298,7 @@ struct MoveEntriesSheet: View {
             }
         }
         .padding()
-        .frame(width: 300)
-    }
-
-    private var flattenedFolders: [Folder] {
-        var result: [Folder] = []
-        func collect(_ folders: [Folder]) {
-            for folder in folders {
-                result.append(folder)
-                collect(folder.subfolders)
-            }
-        }
-        collect(dataStore.data.rootFolder.subfolders)
-        return result
+        .frame(width: 320)
     }
 }
 
@@ -348,14 +315,11 @@ struct MoveFolderSheet: View {
             Text("Move Folder To")
                 .font(.headline)
 
-            Picker("Destination", selection: $selectedFolderID) {
-                Text("/").tag(FolderConstants.rootFolderID)
-                ForEach(validDestinations, id: \.id) { folder in
-                    Text(folder.name).tag(folder.id)
-                }
-            }
-            .pickerStyle(.radioGroup)
-            .labelsHidden()
+            FolderDestinationPicker(
+                dataStore: dataStore,
+                selectedFolderID: $selectedFolderID,
+                excludedIDs: excludedIDs
+            )
 
             HStack {
                 Button("Cancel") {
@@ -373,21 +337,20 @@ struct MoveFolderSheet: View {
             }
         }
         .padding()
-        .frame(width: 300)
+        .frame(width: 320)
     }
 
-    private var validDestinations: [Folder] {
-        var result: [Folder] = []
-        func collect(_ folders: [Folder]) {
+    private var excludedIDs: Set<UUID> {
+        var result = Set<UUID>([folderID])
+        func collectDescendants(_ folders: [Folder]) {
             for folder in folders {
-                // Skip self and descendants
-                if folder.id != folderID && !dataStore.isDescendant(folderID: folder.id, of: folderID) {
-                    result.append(folder)
+                if dataStore.isDescendant(folderID: folder.id, of: folderID) {
+                    result.insert(folder.id)
                 }
-                collect(folder.subfolders)
+                collectDescendants(folder.subfolders)
             }
         }
-        collect(dataStore.data.rootFolder.subfolders)
+        collectDescendants(dataStore.data.rootFolder.subfolders)
         return result
     }
 }
@@ -456,6 +419,119 @@ struct NewFolderSheet: View {
     }
 }
 
+// MARK: - Add Entry Sheet
+
+struct AddEntrySheet: View {
+    @ObservedObject var dataStore: DataStore
+    let entryText: String
+    let dismiss: () -> Void
+    let onAdd: (UUID) -> Void
+    @State private var selectedFolderID: UUID = FolderConstants.rootFolderID
+
+    var body: some View {
+        VStack(spacing: 16) {
+            Text("Add Entry To")
+                .font(.headline)
+
+            Text(entryText)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            FolderDestinationPicker(dataStore: dataStore, selectedFolderID: $selectedFolderID, excludedIDs: [])
+
+            HStack {
+                Button("Cancel") {
+                    dismiss()
+                }
+                .keyboardShortcut(.cancelAction)
+
+                Spacer()
+
+                Button("Add") {
+                    let newEntry = Entry(text: entryText, date: Date())
+                    dataStore.addEntry(newEntry, toFolderID: selectedFolderID)
+                    onAdd(newEntry.id)
+                    dismiss()
+                }
+                .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding()
+        .frame(width: 320)
+    }
+}
+
+private struct FolderDestinationPicker: View {
+    @ObservedObject var dataStore: DataStore
+    @Binding var selectedFolderID: UUID
+    let excludedIDs: Set<UUID>
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                FolderTreeRowContent(name: "<root folder>", id: FolderConstants.rootFolderID, depth: 0, selectedFolderID: $selectedFolderID)
+                Divider().padding(.vertical, 4)
+                ForEach(dataStore.data.rootFolder.subfolders) { folder in
+                    FolderTreeRow(folder: folder, depth: 0, selectedFolderID: $selectedFolderID, excludedIDs: excludedIDs)
+                }
+            }
+        }
+        .frame(maxHeight: 220)
+    }
+}
+
+private struct FolderTreeRow: View {
+    let folder: Folder
+    let depth: Int
+    @Binding var selectedFolderID: UUID
+    let excludedIDs: Set<UUID>
+
+    var body: some View {
+        if excludedIDs.contains(folder.id) {
+            EmptyView()
+        } else {
+            VStack(alignment: .leading, spacing: 0) {
+                FolderTreeRowContent(name: folder.name, id: folder.id, depth: depth, selectedFolderID: $selectedFolderID)
+                ForEach(folder.subfolders) { subfolder in
+                    FolderTreeRow(folder: subfolder, depth: depth + 1, selectedFolderID: $selectedFolderID, excludedIDs: excludedIDs)
+                }
+            }
+        }
+    }
+}
+
+private struct FolderTreeRowContent: View {
+    let name: String
+    let id: UUID
+    let depth: Int
+    @Binding var selectedFolderID: UUID
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: selectedFolderID == id ? "largecircle.fill.circle" : "circle")
+                .foregroundColor(.accentColor)
+                .imageScale(.small)
+                .frame(width: 16)
+
+            Image(systemName: "folder")
+                .foregroundColor(.accentColor)
+
+            Text(name)
+                .lineLimit(1)
+                .truncationMode(.middle)
+
+            Spacer()
+        }
+        .padding(.vertical, 4)
+        .padding(.leading, CGFloat(depth) * 16)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            selectedFolderID = id
+        }
+    }
+}
+
 // MARK: - Content View
 
 struct ContentView: View {
@@ -503,6 +579,7 @@ struct LinksView: View {
     @State private var moveEntryItem: MoveItem?
     @State private var moveMultipleEntryIDs: [UUID]?
     @State private var moveFolderItem: MoveItem?
+    @State private var addEntryItem: AddEntryItem?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -550,24 +627,6 @@ struct LinksView: View {
 
             // Tree List
             List {
-                // Root "/" folder row - clickable to add entries to root
-                HStack {
-                    Image(systemName: "folder")
-                        .foregroundStyle(.secondary)
-                    Text("/")
-                        .fontWeight(.medium)
-                }
-                .padding(.vertical, 2)
-                .contentShape(Rectangle())
-                .onTapGesture {
-                    selectItem(FolderConstants.rootFolderID)
-                }
-                .listRowBackground(
-                    selectedItemIDs.contains(FolderConstants.rootFolderID)
-                        ? Color.accentColor.opacity(0.2)
-                        : Color.clear
-                )
-
                 // Folders section
                 ForEach(filteredFolders) { folder in
                     FolderSection(
@@ -663,6 +722,18 @@ struct LinksView: View {
         .sheet(isPresented: $showNewFolderSheet) {
             NewFolderSheet(dataStore: dataStore, isPresented: $showNewFolderSheet)
         }
+        .sheet(item: $addEntryItem) { item in
+            AddEntrySheet(
+                dataStore: dataStore,
+                entryText: item.text,
+                dismiss: { addEntryItem = nil },
+                onAdd: { entryID in
+                    selectedItemIDs = [entryID]
+                    textInput = ""
+                    searchFilter = ""
+                }
+            )
+        }
         .sheet(item: $moveEntryItem) { item in
             MoveEntrySheet(dataStore: dataStore, entryID: item.id, dismiss: { moveEntryItem = nil })
         }
@@ -749,18 +820,7 @@ struct LinksView: View {
 
     private func addEntry() {
         guard !textInput.isEmpty else { return }
-        let newEntry = Entry(text: textInput, date: Date())
-
-        // Determine target folder based on selection (default to root)
-        var targetFolderID: UUID = FolderConstants.rootFolderID
-        if let selectedID = selectedItemIDs.first {
-            targetFolderID = dataStore.findParentFolderID(for: selectedID)
-        }
-
-        dataStore.addEntry(newEntry, toFolderID: targetFolderID)
-        selectedItemIDs = [newEntry.id]
-        textInput = ""
-        searchFilter = ""
+        addEntryItem = AddEntryItem(id: UUID(), text: textInput)
         isTextFieldFocused = false
     }
 
