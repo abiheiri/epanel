@@ -1052,6 +1052,51 @@ struct SettingsView: View {
                 .font(.title2)
                 .fontWeight(.semibold)
 
+            GroupBox("Cross-Device Sync") {
+                VStack(alignment: .leading, spacing: 12) {
+                    Toggle("Sync via iCloud Drive", isOn: Binding(
+                        get: { dataStore.fileSyncEnabled },
+                        set: { newValue in
+                            if newValue {
+                                dataStore.chooseDataFile()
+                            } else {
+                                dataStore.disableFileSync()
+                            }
+                        }
+                    ))
+
+                    if dataStore.fileSyncEnabled {
+                        if let syncURL = dataStore.fileSyncURL {
+                            HStack(spacing: 4) {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .foregroundColor(.green)
+                                    .font(.caption)
+                                Text("Syncing: \(syncURL.lastPathComponent)")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                            }
+                        }
+
+                        Button("Change Data Location…") {
+                            dataStore.chooseDataFile()
+                        }
+
+                        Text("Place epanel.json in an iCloud Drive folder on one Mac, then select it here on each Mac. Changes merge automatically — newest entry or folder wins on conflict.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    } else {
+                        Text("Use the same ePanel data across multiple Macs via iCloud Drive. Create an epanel.json file in an iCloud Drive folder, then select it here.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                .padding(4)
+            }
+
             GroupBox("Safari Sync") {
                 VStack(alignment: .leading, spacing: 12) {
                     Toggle("Sync with Safari", isOn: Binding(
