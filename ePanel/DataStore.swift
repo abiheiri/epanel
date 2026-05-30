@@ -736,6 +736,22 @@ class DataStore: ObservableObject {
 
     private func loadSyncSettings() {
         safariSyncEnabled = UserDefaults.standard.bool(forKey: syncEnabledKey)
+
+        // Restore file sync FIRST so iCloud data is loaded before Safari sync.
+        // This prevents a race where Safari sync replaces folders with new UUIDs,
+        // then reloadAndMerge reads stale iCloud data and merges by UUID — creating
+        // duplicates since the Safari-imported items have different UUIDs.
+        let wasFileSyncEnabled = UserDefaults.standard.bool(forKey: Self.fileSyncEnabledKey)
+        if wasFileSyncEnabled {
+            if resolveDataFileBookmark() != nil {
+                enableFileSyncMonitor()
+            } else {
+                // Bookmark stale, reset
+                UserDefaults.standard.set(false, forKey: Self.fileSyncEnabledKey)
+            }
+        }
+
+        // THEN start Safari sync (so iCloud data is already in memory)
         if safariSyncEnabled {
             let manager = SafariSyncManager()
             manager.dataStore = self
@@ -746,17 +762,6 @@ class DataStore: ObservableObject {
                 // Bookmark resolution failed; disable sync
                 safariSyncEnabled = false
                 UserDefaults.standard.set(false, forKey: syncEnabledKey)
-            }
-        }
-
-        // Restore file sync if it was previously enabled
-        let wasFileSyncEnabled = UserDefaults.standard.bool(forKey: Self.fileSyncEnabledKey)
-        if wasFileSyncEnabled {
-            if resolveDataFileBookmark() != nil {
-                enableFileSyncMonitor()
-            } else {
-                // Bookmark stale, reset
-                UserDefaults.standard.set(false, forKey: Self.fileSyncEnabledKey)
             }
         }
     }
@@ -1076,15 +1081,29 @@ class DataStore: ObservableObject {
 
     private func mergeEntries(local: [Entry], remote: [Entry]) -> [Entry] {
         var entryMap: [UUID: Entry] = [:]
-        for e in local { entryMap[e.id] = e }
+        var urlMap: [String: UUID] = [:] // normalized URL → UUID
+
+        for e in local {
+            entryMap[e.id] = e
+            urlMap[e.text.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)] = e.id
+        }
         for e in remote {
+            let normalizedURL = e.text.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
             if let existing = entryMap[e.id] {
-                // Prefer entry with newer date
+                // Same UUID — prefer entry with newer date
                 if e.date > existing.date {
                     entryMap[e.id] = e
                 }
+            } else if let existingID = urlMap[normalizedURL], let existing = entryMap[existingID] {
+                // Same URL, different UUID — duplicate from race between Safari sync and iCloud sync.
+                // Keep the entry with the newer date.
+                if e.date > existing.date {
+                    entryMap[existingID] = e
+                    urlMap[normalizedURL] = e.id
+                }
             } else {
                 entryMap[e.id] = e
+                urlMap[normalizedURL] = e.id
             }
         }
         return entryMap.values.sorted { $0.date > $1.date }
