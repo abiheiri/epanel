@@ -206,6 +206,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 miniaturizeButton.target = self
                 miniaturizeButton.action = #selector(self.customMiniaturizeAction(_:))
             }
+
+            // If no data file is configured, prompt the user to select/create one
+            if DataStore.shared.needsFileSelection {
+                DataStore.shared.promptForDataFile()
+            }
         }
         
         NotificationCenter.default.addObserver(

@@ -1034,7 +1034,7 @@ struct NotesView: View {
     @ObservedObject var dataStore: DataStore
 
     var body: some View {
-        TextEditor(text: $dataStore.data.notes)
+        TextEditor(text: $dataStore.notes)
             .font(.system(size: 14))
             .padding()
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -1052,47 +1052,79 @@ struct SettingsView: View {
                 .font(.title2)
                 .fontWeight(.semibold)
 
-            GroupBox("Cross-Device Sync") {
+            GroupBox("Data File") {
                 VStack(alignment: .leading, spacing: 12) {
-                    Toggle("Sync via iCloud Drive", isOn: Binding(
-                        get: { dataStore.fileSyncEnabled },
-                        set: { newValue in
-                            if newValue {
-                                dataStore.chooseDataFile()
-                            } else {
-                                dataStore.disableFileSync()
-                            }
+                    HStack(spacing: 4) {
+                        Image(systemName: "doc.text")
+                            .foregroundColor(.accentColor)
+                        if let fileURL = dataStore.dataFileURL {
+                            Text(fileURL.path)
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                                .lineLimit(2)
+                                .truncationMode(.middle)
+                                .textSelection(.enabled)
+                        } else {
+                            Text("No file selected")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
                         }
-                    ))
-
-                    if dataStore.fileSyncEnabled {
-                        if let syncURL = dataStore.fileSyncURL {
-                            HStack(spacing: 4) {
-                                Image(systemName: "checkmark.circle.fill")
-                                    .foregroundColor(.green)
-                                    .font(.caption)
-                                Text("Syncing: \(syncURL.lastPathComponent)")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                                    .lineLimit(1)
-                                    .truncationMode(.middle)
-                            }
-                        }
-
-                        Button("Change Data Location…") {
-                            dataStore.chooseDataFile()
-                        }
-
-                        Text("Place epanel.json in an iCloud Drive folder on one Mac, then select it here on each Mac. Changes merge automatically — newest entry or folder wins on conflict.")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    } else {
-                        Text("Use the same ePanel data across multiple Macs via iCloud Drive. Create an epanel.json file in an iCloud Drive folder, then select it here.")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
                     }
+
+                    HStack(spacing: 8) {
+                        Button("Change Data File…") {
+                            dataStore.changeDataFile()
+                        }
+
+                        if let fileURL = dataStore.dataFileURL {
+                            Button("Reveal in Finder") {
+                                NSWorkspace.shared.activateFileViewerSelecting([fileURL])
+                            }
+                        }
+                    }
+
+                    if let lastSync = dataStore.lastSyncDate {
+                        HStack(spacing: 4) {
+                            Image(systemName: "arrow.triangle.2.circlepath")
+                                .foregroundColor(.secondary)
+                                .font(.caption)
+                            Text("Last reloaded: \(lastSync.formatted(date: .abbreviated, time: .shortened))")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+
+                    Text("ePanel reads and writes directly to this JSON file. Multiple instances of ePanel or epanel-tui can safely share the same file — entries are deduplicated by URL (newest wins). Notes are stored in a companion notes.txt file alongside the JSON.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(4)
+            }
+
+            GroupBox("Notes File") {
+                VStack(alignment: .leading, spacing: 12) {
+                    if let notesURL = dataStore.dataFileURL?.deletingLastPathComponent().appendingPathComponent("notes.txt") {
+                        HStack(spacing: 4) {
+                            Image(systemName: "note.text")
+                                .foregroundColor(.accentColor)
+                            Text(notesURL.path)
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                                .lineLimit(2)
+                                .truncationMode(.middle)
+                                .textSelection(.enabled)
+                        }
+
+                        Button("Reveal in Finder") {
+                            NSWorkspace.shared.activateFileViewerSelecting([notesURL])
+                        }
+                    }
+
+                    Text("Notes are stored separately from the JSON data. epanel-tui also reads and writes this file. When a conflict is detected (external edits), new content is appended automatically.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 .padding(4)
             }
@@ -1122,12 +1154,12 @@ struct SettingsView: View {
                             }
                         }
 
-                        Text("Safari bookmarks and reading list sync automatically while ePanel is open. Your original ePanel content was moved to the 'my_original_epanel' folder.")
+                        Text("Safari bookmarks and reading list sync automatically while ePanel is open.")
                             .font(.caption)
                             .foregroundColor(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
                     } else {
-                        Text("When enabled, your existing ePanel content will be moved to a 'my_original_epanel' folder. Safari bookmarks will be imported into the root, and Reading List will appear as a separate folder. New Safari additions sync automatically.")
+                        Text("When enabled, your existing ePanel content will be moved to a 'my_original_epanel' folder. Safari bookmarks will be imported into the root, and Reading List will appear as a separate folder.")
                             .font(.caption)
                             .foregroundColor(.secondary)
                             .fixedSize(horizontal: false, vertical: true)

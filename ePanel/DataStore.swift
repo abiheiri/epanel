@@ -1,7 +1,6 @@
 // DataStore.swift
 import Foundation
 import AppKit
-import UniformTypeIdentifiers
 
 // MARK: - Constants
 
@@ -44,20 +43,15 @@ struct Folder: Identifiable, Codable {
     }
 }
 
+/// Serializable data stored in the shared epanel.json (folders/entries only).
+/// Notes are stored in a separate notes.txt file alongside the JSON.
 struct EPanelData: Codable {
     var rootFolder: Folder
-    var notes: String
 
     static var empty: EPanelData {
         EPanelData(
-            rootFolder: Folder(id: FolderConstants.rootFolderID, name: FolderConstants.rootFolderName),
-            notes: ""
+            rootFolder: Folder(id: FolderConstants.rootFolderID, name: FolderConstants.rootFolderName)
         )
-    }
-
-    /// Returns a copy with notes stripped — used when writing to the shared sync file
-    var withoutNotes: EPanelData {
-        EPanelData(rootFolder: rootFolder, notes: "")
     }
 }
 
@@ -75,34 +69,45 @@ class DataStore: ObservableObject {
 
     @Published var data: EPanelData = .empty {
         didSet {
+            guard !isApplyingExternalChange else { return }
             debouncedSaveData()
             if safariSyncEnabled && !isSyncingFromSafari {
                 syncManager?.scheduleWriteback()
             }
-            if fileSyncEnabled && !isApplyingFileChange {
-                scheduleFileSyncPush()
-            }
+        }
+    }
+    @Published var notes: String = "" {
+        didSet {
+            debouncedSaveNotes()
         }
     }
     @Published var showAlert = false
     @Published var alertMessage = ""
     @Published var safariSyncEnabled: Bool = false
-    @Published var fileSyncEnabled: Bool = false
     @Published var lastSyncDate: Date?
-    @Published var fileSyncURL: URL?
+    @Published var dataFileURL: URL?
+    @Published var needsFileSelection: Bool = false
 
     private var saveDataWorkItem: DispatchWorkItem?
     private let saveQueue = DispatchQueue(label: "com.epanel.save", qos: .utility)
     private var syncManager: SafariSyncManager?
     private var isSyncingFromSafari = false
-    private var isApplyingFileChange = false
     private var fileMonitor: FileMonitor?
-    private var fileSyncPushWorkItem: DispatchWorkItem?
-    private var fileMonitorRetryTimer: DispatchSourceTimer?
+    private var notesFileMonitor: FileMonitor?
+    private var dataPollTimer: DispatchSourceTimer?
+    private var isApplyingExternalChange = false
+    /// Whether we hold an open security scope grant for the file monitors
+    private var dataFolderScopeAccessed = false
+    private var lastWrittenNotesContent: String = ""
+    /// Tracks the notes content we knew about when we last read — so we can detect external appends
+    private var lastKnownNotesContent: String = ""
+    /// Content hash of last JSON we wrote, to detect self-triggered changes
+    private var lastWrittenDataHash: Int? = nil
+    /// Resolved security-scoped bookmark URL for the data *folder* (grants access to all files inside)
+    private var dataFolderURL: URL?
 
     private let syncEnabledKey = "safariSyncEnabled"
-    static let dataFileBookmarkKey = "dataFileBookmarkData"
-    static let fileSyncEnabledKey = "fileSyncEnabled"
+    static let dataFolderBookmarkKey = "dataFolderBookmarkKey"
 
     let dateFormatter: DateFormatter = {
         let formatter = DateFormatter()
@@ -123,8 +128,27 @@ class DataStore: ObservableObject {
         return result
     }
 
+    /// The companion notes file path (notes.txt alongside the JSON)
+    private var notesFileURL: URL? {
+        guard let jsonURL = dataFileURL else { return nil }
+        return jsonURL.deletingLastPathComponent().appendingPathComponent("notes.txt")
+    }
+
     init() {
-        loadData()
+        // Try to restore the previously-selected data folder from security-scoped bookmark
+        if let savedFolderURL = resolveDataFolderBookmark() {
+            dataFolderURL = savedFolderURL
+            let jsonURL = savedFolderURL.appendingPathComponent("epanel.json")
+            if FileManager.default.fileExists(atPath: jsonURL.path) {
+                dataFileURL = jsonURL
+                loadAllData(from: jsonURL)
+                startFileMonitoring(for: jsonURL)
+            } else {
+                needsFileSelection = true
+            }
+        } else {
+            needsFileSelection = true
+        }
         loadSyncSettings()
         NotificationCenter.default.addObserver(
             forName: NSApplication.willTerminateNotification,
@@ -133,64 +157,191 @@ class DataStore: ObservableObject {
         ) { [weak self] _ in
             self?.syncManager?.stop()
             self?.saveDataSync()
+            self?.saveNotesSync()
         }
+    }
+
+    // MARK: - File Selection
+
+    /// Ask the user to select the folder containing their ePanel data
+    func promptForDataFile() {
+        let alert = NSAlert()
+        alert.messageText = "Welcome to ePanel"
+        alert.informativeText = "Select the folder that contains your ePanel data (epanel.json + notes.txt), or create a new one."
+        alert.addButton(withTitle: "Open Existing Folder…")
+        alert.addButton(withTitle: "Create New…")
+        alert.addButton(withTitle: "Quit")
+
+        let response = alert.runModal()
+        switch response {
+        case .alertFirstButtonReturn:
+            chooseExistingFolder()
+        case .alertSecondButtonReturn:
+            createNewFile()
+        default:
+            NSApplication.shared.terminate(nil)
+        }
+    }
+
+    private func chooseExistingFolder() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.message = "Select the folder containing your epanel.json file"
+        panel.prompt = "Select Folder"
+        panel.canCreateDirectories = true
+
+        // Default to iCloud Drive
+        if let iCloudURL = FileManager.default.url(forUbiquityContainerIdentifier: nil) {
+            panel.directoryURL = iCloudURL
+        }
+
+        panel.begin { [weak self] response in
+            guard let self, response == .OK, let folderURL = panel.url else {
+                self?.promptForDataFile()
+                return
+            }
+            let jsonURL = folderURL.appendingPathComponent("epanel.json")
+            if !FileManager.default.fileExists(atPath: jsonURL.path) {
+                // Create empty data file
+                let emptyData = EPanelData.empty
+                do {
+                    let encoder = JSONEncoder()
+                    encoder.dateEncodingStrategy = .iso8601
+                    encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+                    let jsonData = try encoder.encode(emptyData)
+                    try jsonData.write(to: jsonURL, options: .atomic)
+                } catch {
+                    self.showAlert(message: "Failed to create epanel.json: \(error.localizedDescription)")
+                    self.promptForDataFile()
+                    return
+                }
+            }
+            self.setDataFolder(folderURL)
+        }
+    }
+
+    private func createNewFile() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.message = "Choose a folder for your new ePanel data"
+        panel.prompt = "Select Folder"
+        panel.canCreateDirectories = true
+
+        // Default to iCloud Drive / ePanel folder
+        if let iCloudURL = FileManager.default.url(forUbiquityContainerIdentifier: nil)?
+            .appendingPathComponent("ePanel", isDirectory: true)
+        {
+            try? FileManager.default.createDirectory(at: iCloudURL, withIntermediateDirectories: true, attributes: nil)
+            panel.directoryURL = iCloudURL
+        }
+
+        panel.begin { [weak self] response in
+            guard let self, response == .OK, let folderURL = panel.url else {
+                self?.promptForDataFile()
+                return
+            }
+            let jsonURL = folderURL.appendingPathComponent("epanel.json")
+
+            // Write empty data
+            let emptyData = EPanelData.empty
+            do {
+                let encoder = JSONEncoder()
+                encoder.dateEncodingStrategy = .iso8601
+                encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+                let jsonData = try encoder.encode(emptyData)
+                try jsonData.write(to: jsonURL, options: .atomic)
+            } catch {
+                self.showAlert(message: "Failed to create file: \(error.localizedDescription)")
+                self.promptForDataFile()
+                return
+            }
+            // Create empty notes file too
+            let notesURL = folderURL.appendingPathComponent("notes.txt")
+            if !FileManager.default.fileExists(atPath: notesURL.path) {
+                try? "".write(to: notesURL, atomically: true, encoding: .utf8)
+            }
+            self.setDataFolder(folderURL)
+        }
+    }
+
+    /// Switch to a different data folder (called from settings too)
+    func changeDataFile() {
+        stopFileMonitoring()
+        dataFileURL = nil
+        dataFolderURL = nil
+        needsFileSelection = true
+        promptForDataFile()
+    }
+
+    /// Set the data folder, save directory-scoped bookmark, load data, start monitoring
+    private func setDataFolder(_ folderURL: URL) {
+        guard saveDataFolderBookmark(for: folderURL) else {
+            showAlert(message: "Failed to save folder access permission.")
+            promptForDataFile()
+            return
+        }
+        dataFolderURL = folderURL
+        let jsonURL = folderURL.appendingPathComponent("epanel.json")
+        dataFileURL = jsonURL
+        needsFileSelection = false
+        loadAllData(from: jsonURL)
+        startFileMonitoring(for: jsonURL)
     }
 
     // MARK: - Load/Save
 
-    /// The sandbox-local URL where full data (including notes) is always persisted.
-    private var localDataURL: URL {
-        getDocumentsDirectory().appendingPathComponent("epanel.json")
+    /// Load both JSON data and notes from the given file URL
+    private func loadAllData(from url: URL) {
+        // Load JSON (folders/entries)
+        loadData(from: url)
+        // Load notes from companion notes.txt
+        loadNotes(from: url)
     }
 
-    func loadData() {
-        // If syncing, try the iCloud Drive shared file first
-        if fileSyncEnabled, let sharedURL = resolveDataFileBookmark() {
-            let needsStop = sharedURL.startAccessingSecurityScopedResource()
-            defer { if needsStop { sharedURL.stopAccessingSecurityScopedResource() } }
-
-            if FileManager.default.fileExists(atPath: sharedURL.path),
-               let jsonData = try? Data(contentsOf: sharedURL) {
-                let decoder = JSONDecoder()
-                decoder.dateDecodingStrategy = .iso8601
-                if let shared = try? decoder.decode(EPanelData.self, from: jsonData) {
-                    data = shared
-                    ensureValidRootFolder()
-                    restoreLocalNotes()
-                    return
+    private func loadData(from url: URL) {
+        let coordinator = NSFileCoordinator(filePresenter: nil)
+        var error: NSError?
+        let scopeAccessed = dataFolderURL?.startAccessingSecurityScopedResource() ?? false
+        defer { if scopeAccessed { dataFolderURL?.stopAccessingSecurityScopedResource() } }
+        coordinator.coordinate(readingItemAt: url, options: .withoutChanges, error: &error) { readURL in
+            guard FileManager.default.fileExists(atPath: readURL.path),
+                  let jsonData = try? Data(contentsOf: readURL) else { return }
+            let decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = .iso8601
+            if var loaded = try? decoder.decode(EPanelData.self, from: jsonData) {
+                loaded.rootFolder = self.deduplicateFolder(loaded.rootFolder)
+                DispatchQueue.main.async {
+                    self.data = loaded
+                    self.ensureValidRootFolder()
                 }
             }
-            print("iCloud Drive file unreachable, falling back to local sandbox")
         }
-
-        // Load from local sandbox (no sync, or fallback when shared is unreachable)
-        if FileManager.default.fileExists(atPath: localDataURL.path) {
-            do {
-                let jsonData = try Data(contentsOf: localDataURL)
-                let decoder = JSONDecoder()
-                decoder.dateDecodingStrategy = .iso8601
-                data = try decoder.decode(EPanelData.self, from: jsonData)
-                ensureValidRootFolder()
-                return
-            } catch {
-                print("Failed to load JSON from local: \(error)")
-            }
+        if let error {
+            print("File coordination read error: \(error)")
         }
-
-        data = .empty
     }
 
-    /// Restore notes from the local sandbox after loading folders/entries from shared file.
-    private func restoreLocalNotes() {
-        guard FileManager.default.fileExists(atPath: localDataURL.path),
-              let jsonData = try? Data(contentsOf: localDataURL),
-              let local = try? JSONDecoder().decode(EPanelData.self, from: jsonData)
-        else { return }
-        data.notes = local.notes
+    private func loadNotes(from url: URL) {
+        let notesURL = url.deletingLastPathComponent().appendingPathComponent("notes.txt")
+        // Scope the data folder — grants access to all files inside it
+        let scopeAccessed = dataFolderURL?.startAccessingSecurityScopedResource() ?? false
+        defer { if scopeAccessed { dataFolderURL?.stopAccessingSecurityScopedResource() } }
+        guard FileManager.default.fileExists(atPath: notesURL.path),
+              let content = try? String(contentsOf: notesURL, encoding: .utf8) else {
+            return
+        }
+        DispatchQueue.main.async {
+            self.notes = content
+            self.lastKnownNotesContent = content
+            self.lastWrittenNotesContent = content
+        }
     }
 
     private func ensureValidRootFolder() {
-        // If root folder ID is wrong, fix it
         if data.rootFolder.id != FolderConstants.rootFolderID {
             data.rootFolder = Folder(
                 id: FolderConstants.rootFolderID,
@@ -226,31 +377,251 @@ class DataStore: ObservableObject {
     }
 
     func saveData() {
-        let dataToSave = data
+        guard let url = dataFileURL else { return }
         saveQueue.async { [weak self] in
-            self?.writeJSON(dataToSave)
+            self?.writeJSON(url: url)
         }
     }
 
     func saveDataSync() {
+        guard let url = dataFileURL else { return }
         saveDataWorkItem?.cancel()
-        writeJSON(data)
+        writeJSON(url: url)
     }
 
-    private func writeJSON(_ dataToWrite: EPanelData) {
-        // Always save full data (including notes) to the local sandbox
-        let fileURL = localDataURL
-        do {
-            let encoder = JSONEncoder()
-            encoder.dateEncodingStrategy = .iso8601
-            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-            let jsonData = try encoder.encode(dataToWrite)
-            try jsonData.write(to: fileURL, options: .atomic)
-        } catch {
-            DispatchQueue.main.async { [weak self] in
-                self?.showAlert(message: "Failed to save data: \(error.localizedDescription)")
+    private func writeJSON(url: URL) {
+        let dataToWrite = data
+        let coordinator = NSFileCoordinator(filePresenter: nil)
+        var coordinationError: NSError?
+        // Scope the data folder — grants access to all files inside it
+        let scopeAccessed = dataFolderURL?.startAccessingSecurityScopedResource() ?? false
+        defer { if scopeAccessed { dataFolderURL?.stopAccessingSecurityScopedResource() } }
+        coordinator.coordinate(writingItemAt: url, options: .forMerging, error: &coordinationError) { writeURL in
+            do {
+                let encoder = JSONEncoder()
+                encoder.dateEncodingStrategy = .iso8601
+                encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+                let jsonData = try encoder.encode(dataToWrite)
+                // Record hash *before* writing so monitor can skip our own writes
+                self.lastWrittenDataHash = jsonData.hashValue
+                try jsonData.write(to: writeURL, options: .atomic)
+            } catch {
+                DispatchQueue.main.async { [weak self] in
+                    self?.showAlert(message: "Failed to save data: \(error.localizedDescription)")
+                }
             }
         }
+        if let error = coordinationError {
+            print("File coordination write error: \(error)")
+        }
+    }
+
+    // MARK: - Notes Management
+
+    private func debouncedSaveNotes() {
+        saveDataWorkItem?.cancel()
+        let workItem = DispatchWorkItem { [weak self] in
+            self?.saveNotes()
+        }
+        saveDataWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0, execute: workItem)
+    }
+
+    func saveNotes() {
+        guard let url = notesFileURL else { return }
+        saveQueue.async { [weak self] in
+            self?.writeNotes(url: url)
+        }
+    }
+
+    func saveNotesSync() {
+        guard let url = notesFileURL else { return }
+        saveDataWorkItem?.cancel()
+        writeNotes(url: url)
+    }
+
+    private func writeNotes(url: URL) {
+        let contentToWrite = notes
+        let coordinator = NSFileCoordinator(filePresenter: nil)
+        var coordinationError: NSError?
+        // Scope the data folder — grants access to all files inside it (including notes.txt)
+        let scopeAccessed = dataFolderURL?.startAccessingSecurityScopedResource() ?? false
+        defer { if scopeAccessed { dataFolderURL?.stopAccessingSecurityScopedResource() } }
+        coordinator.coordinate(writingItemAt: url, options: .forMerging, error: &coordinationError) { writeURL in
+            self.notesFileMonitor?.stop()
+            defer { self.notesFileMonitor?.start() }
+
+            do {
+                try contentToWrite.write(to: writeURL, atomically: true, encoding: .utf8)
+                self.lastWrittenNotesContent = contentToWrite
+                self.lastKnownNotesContent = contentToWrite
+            } catch {
+                DispatchQueue.main.async { [weak self] in
+                    self?.showAlert(message: "Failed to save notes: \(error.localizedDescription)")
+                }
+            }
+        }
+        if let error = coordinationError {
+            print("File coordination notes write error: \(error)")
+        }
+    }
+
+    // MARK: - Deduplication
+
+    /// Deduplicate all entries in a folder tree. For entries with the same normalized URL,
+    /// keep the one with the newest date. Handles same-UUID duplicates and different-UUID-same-URL.
+    private func deduplicateFolder(_ folder: Folder) -> Folder {
+        var result = folder
+        result.entries = deduplicateEntries(result.entries)
+        result.subfolders = result.subfolders.map { deduplicateFolder($0) }
+        return result
+    }
+
+    private func deduplicateEntries(_ entries: [Entry]) -> [Entry] {
+        var seenURLs: Set<String> = []
+        var result: [Entry] = []
+
+        for entry in entries {
+            let normalized = entry.text.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+            if seenURLs.contains(normalized) {
+                continue // skip duplicate — first occurrence (in order) wins
+            }
+            seenURLs.insert(normalized)
+            result.append(entry)
+        }
+
+        return result
+    }
+
+    // MARK: - External Change Detection
+
+    /// Handle external changes to the JSON file — re-read and merge
+    private func handleExternalDataChange() {
+        guard let url = dataFileURL else { return }
+
+        let coordinator = NSFileCoordinator(filePresenter: nil)
+        var error: NSError?
+        let scopeAccessed = dataFolderURL?.startAccessingSecurityScopedResource() ?? false
+        defer { if scopeAccessed { dataFolderURL?.stopAccessingSecurityScopedResource() } }
+        coordinator.coordinate(readingItemAt: url, options: .withoutChanges, error: &error) { readURL in
+            guard FileManager.default.fileExists(atPath: readURL.path),
+                  let jsonData = try? Data(contentsOf: readURL) else { return }
+
+            // Skip if this was our own write
+            if jsonData.hashValue == self.lastWrittenDataHash {
+                return
+            }
+
+            let decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = .iso8601
+            guard let incoming = try? decoder.decode(EPanelData.self, from: jsonData) else { return }
+
+            DispatchQueue.main.async {
+                // Check if anything actually changed (deep comparison across all folders)
+                guard self.hasDataChanged(local: self.data, remote: incoming) else { return }
+
+                self.isApplyingExternalChange = true
+                defer { self.isApplyingExternalChange = false }
+
+                // Adopt the remote data directly — the TUI writes the complete file,
+                // so this correctly picks up additions AND deletions.
+                self.data = incoming
+                self.lastSyncDate = Date()
+            }
+        }
+    }
+
+    /// Handle external changes to the notes file — adopt disk content as truth.
+    /// The TUI writes the complete file on every save, so pick up additions AND deletions.
+    private func handleExternalNotesChange() {
+        guard let url = notesFileURL else { return }
+
+        let scopeAccessed = dataFolderURL?.startAccessingSecurityScopedResource() ?? false
+        defer { if scopeAccessed { dataFolderURL?.stopAccessingSecurityScopedResource() } }
+
+        guard FileManager.default.fileExists(atPath: url.path),
+              let diskContent = try? String(contentsOf: url, encoding: .utf8) else { return }
+
+        DispatchQueue.main.async {
+            // Skip if this matches what we last knew about (including our own writes)
+            if diskContent == self.lastKnownNotesContent { return }
+
+            // Adopt the on-disk version as authoritative — the TUI writes the full file
+            self.lastKnownNotesContent = diskContent
+            self.lastWrittenNotesContent = diskContent
+            self.notes = diskContent
+        }
+    }
+
+    /// Deep-compare two datasets to see if content actually differs.
+    /// Recursively checks all entries and subfolder contents across the entire tree.
+    private func hasDataChanged(local: EPanelData, remote: EPanelData) -> Bool {
+        return !foldersAreEqual(local.rootFolder, remote.rootFolder)
+    }
+
+    /// Recursively compare two folders by entry identity and subtree structure.
+    private func foldersAreEqual(_ a: Folder, _ b: Folder) -> Bool {
+        // Fast checks: count mismatch = definitely different
+        guard a.entries.count == b.entries.count,
+              a.subfolders.count == b.subfolders.count else { return false }
+
+        // Compare entries as sets of normalized URLs
+        let aEntries = Set(a.entries.map { $0.text.lowercased().trimmingCharacters(in: .whitespacesAndNewlines) })
+        let bEntries = Set(b.entries.map { $0.text.lowercased().trimmingCharacters(in: .whitespacesAndNewlines) })
+        guard aEntries == bEntries else { return false }
+
+        // Compare subfolders recursively
+        for subA in a.subfolders {
+            guard let subB = b.subfolders.first(where: { $0.name.lowercased() == subA.name.lowercased() }),
+                  foldersAreEqual(subA, subB) else { return false }
+        }
+
+        return true
+    }
+
+    /// Structured merge: union by UUID/name, deduplicate entries, preserve local order.
+    /// New entries from remote are appended at the end of each folder.
+    private func mergeData(local: EPanelData, remote: EPanelData) -> EPanelData {
+        var merged = local
+
+        // Preserve local entries in order, append truly new remote entries
+        let localURLs = Set(local.rootFolder.entries.map { $0.text.lowercased().trimmingCharacters(in: .whitespacesAndNewlines) })
+        let newRemoteEntries = remote.rootFolder.entries.filter {
+            !localURLs.contains($0.text.lowercased().trimmingCharacters(in: .whitespacesAndNewlines))
+        }
+        merged.rootFolder.entries = local.rootFolder.entries + newRemoteEntries
+
+        merged.rootFolder.subfolders = mergeFolders(local: local.rootFolder.subfolders, remote: remote.rootFolder.subfolders)
+        return merged
+    }
+
+    private func mergeFolders(local: [Folder], remote: [Folder]) -> [Folder] {
+        // Preserve local folder order, merge matching folders in place, append new ones
+        var result = local
+        var localNameMap: [String: Int] = [:] // lowercase name → index
+        for (i, f) in local.enumerated() {
+            localNameMap[f.name.lowercased()] = i
+        }
+
+        for remoteFolder in remote {
+            let remoteName = remoteFolder.name.lowercased()
+            if let localIndex = localNameMap[remoteName] {
+                // Merge into existing folder — preserve local entry order
+                let existing = result[localIndex]
+                let existingURLs = Set(existing.entries.map { $0.text.lowercased().trimmingCharacters(in: .whitespacesAndNewlines) })
+                let newEntries = remoteFolder.entries.filter {
+                    !existingURLs.contains($0.text.lowercased().trimmingCharacters(in: .whitespacesAndNewlines))
+                }
+                result[localIndex].entries = existing.entries + newEntries
+                result[localIndex].subfolders = mergeFolders(local: existing.subfolders, remote: remoteFolder.subfolders)
+            } else {
+                // Brand new folder — append it
+                localNameMap[remoteName] = result.count
+                result.append(deduplicateFolder(remoteFolder))
+            }
+        }
+
+        return result
     }
 
     // MARK: - Import/Export
@@ -272,7 +643,7 @@ class DataStore: ObservableObject {
         // Show confirmation dialog
         let alert = NSAlert()
         alert.messageText = "Replace All Data?"
-        alert.informativeText = "Importing this JSON file will replace all your existing entries, folders, and notes. This cannot be undone."
+        alert.informativeText = "Importing this JSON file will replace all your existing entries and folders. This cannot be undone."
         alert.alertStyle = .warning
         alert.addButton(withTitle: "Replace")
         alert.addButton(withTitle: "Cancel")
@@ -298,9 +669,12 @@ class DataStore: ObservableObject {
                             name: FolderConstants.rootFolderName,
                             entries: oldData.rootEntries,
                             subfolders: oldData.folders
-                        ),
-                        notes: oldData.notes
+                        )
                     )
+                    // Import legacy notes into the notes file if they exist
+                    if !oldData.notes.isEmpty {
+                        notes = oldData.notes
+                    }
                     return
                 }
 
@@ -737,21 +1111,6 @@ class DataStore: ObservableObject {
     private func loadSyncSettings() {
         safariSyncEnabled = UserDefaults.standard.bool(forKey: syncEnabledKey)
 
-        // Restore file sync FIRST so iCloud data is loaded before Safari sync.
-        // This prevents a race where Safari sync replaces folders with new UUIDs,
-        // then reloadAndMerge reads stale iCloud data and merges by UUID — creating
-        // duplicates since the Safari-imported items have different UUIDs.
-        let wasFileSyncEnabled = UserDefaults.standard.bool(forKey: Self.fileSyncEnabledKey)
-        if wasFileSyncEnabled {
-            if resolveDataFileBookmark() != nil {
-                enableFileSyncMonitor()
-            } else {
-                // Bookmark stale, reset
-                UserDefaults.standard.set(false, forKey: Self.fileSyncEnabledKey)
-            }
-        }
-
-        // THEN start Safari sync (so iCloud data is already in memory)
         if safariSyncEnabled {
             let manager = SafariSyncManager()
             manager.dataStore = self
@@ -861,8 +1220,6 @@ class DataStore: ObservableObject {
             for i in folder.subfolders.indices { restoreState(&folder.subfolders[i]) }
         }
 
-        // print("applySafariSync: \(bookmarkFolders.count) bookmark folders, \(readingList.entries.count) reading list entries")
-
         // Replace each synced bookmark folder with Safari's current version
         for var safariFolder in bookmarkFolders {
             restoreState(&safariFolder)
@@ -886,98 +1243,83 @@ class DataStore: ObservableObject {
         lastSyncDate = Date()
     }
 
-    // MARK: - File Sync (iCloud Drive)
+    // MARK: - File Monitoring & Bookmarks
 
-    /// Opens NSOpenPanel for the user to select their shared epanel.json in iCloud Drive
-    func chooseDataFile() {
-        let panel = NSOpenPanel()
-        panel.allowedContentTypes = [UTType.json]
-        panel.canChooseFiles = true
-        panel.canChooseDirectories = false
-        panel.allowsMultipleSelection = false
-        panel.message = "Select the shared epanel.json file in your iCloud Drive folder"
-        panel.prompt = "Use This File"
-
-        // Default to iCloud Drive
-        if let iCloudURL = FileManager.default.url(forUbiquityContainerIdentifier: nil)?
-            .appendingPathComponent("ePanel", isDirectory: true)
-        {
-            try? FileManager.default.createDirectory(at: iCloudURL, withIntermediateDirectories: true, attributes: nil)
-            panel.directoryURL = iCloudURL
+    /// Start monitoring both the JSON and notes files for external changes.
+    /// Holds the security scope open for as long as monitoring is active.
+    private func startFileMonitoring(for url: URL) {
+        // Hold security scope open so FileMonitor's open(O_EVTONLY) succeeds in sandbox
+        if !dataFolderScopeAccessed, let folderURL = dataFolderURL {
+            if folderURL.startAccessingSecurityScopedResource() {
+                dataFolderScopeAccessed = true
+            }
         }
 
-        panel.begin { [weak self] response in
-            guard let self, response == .OK, let url = panel.url else { return }
-            self.enableFileSync(with: url)
+        // Monitor the JSON file
+        let jsonMonitor = FileMonitor(url: url, queue: .main)
+        jsonMonitor.onChange = { [weak self] in
+            self?.handleExternalDataChange()
+        }
+        jsonMonitor.start()
+        fileMonitor = jsonMonitor
+
+        // Polling fallback for epanel.json — catches atomic renames the kernel event may miss
+        let timer = DispatchSource.makeTimerSource(queue: .main)
+        timer.schedule(deadline: .now() + 5, repeating: 5, leeway: .seconds(1))
+        timer.setEventHandler { [weak self] in
+            self?.handleExternalDataChange()
+        }
+        timer.resume()
+        dataPollTimer = timer
+
+        // Monitor the notes file
+        let notesURL = url.deletingLastPathComponent().appendingPathComponent("notes.txt")
+        if FileManager.default.fileExists(atPath: notesURL.path) {
+            let notesMonitor = FileMonitor(url: notesURL, queue: .main)
+            notesMonitor.onChange = { [weak self] in
+                self?.handleExternalNotesChange()
+            }
+            notesMonitor.start()
+            notesFileMonitor = notesMonitor
         }
     }
 
-    /// Enable file sync with the given shared JSON file
-    func enableFileSync(with url: URL) {
-        // Save security-scoped bookmark
-        guard saveDataFileBookmark(for: url) else {
-            showAlert(message: "Failed to save file access permission.")
-            return
-        }
-
-        // Reload data from the shared file (merge with current in-memory data)
-        reloadAndMerge(from: url)
-
-        // Persist setting
-        fileSyncEnabled = true
-        fileSyncURL = url
-        UserDefaults.standard.set(true, forKey: Self.fileSyncEnabledKey)
-
-        // Start file monitor
-        startFileMonitor()
-    }
-
-    /// Disable file sync, revert to local sandbox storage
-    func disableFileSync() {
+    private func stopFileMonitoring() {
         fileMonitor?.stop()
         fileMonitor = nil
-        fileMonitorRetryTimer?.cancel()
-        fileMonitorRetryTimer = nil
-        fileSyncEnabled = false
-        fileSyncURL = nil
-        UserDefaults.standard.set(false, forKey: Self.fileSyncEnabledKey)
-        UserDefaults.standard.removeObject(forKey: Self.dataFileBookmarkKey)
+        dataPollTimer?.cancel()
+        dataPollTimer = nil
+        notesFileMonitor?.stop()
+        notesFileMonitor = nil
 
-        // Save current data to sandbox container
-        saveDataSync()
+        // Release the held security scope
+        if dataFolderScopeAccessed, let folderURL = dataFolderURL {
+            folderURL.stopAccessingSecurityScopedResource()
+            dataFolderScopeAccessed = false
+        }
     }
 
-    /// Restore file sync from saved bookmark (on app launch).
-    /// Called after loadData() has already loaded from local sandbox (since fileSyncEnabled
-    /// was still false at that point), so we now reload the shared file and merge.
-    private func enableFileSyncMonitor() {
-        guard let url = resolveDataFileBookmark() else { return }
-        fileSyncEnabled = true
-        fileSyncURL = url
-        // Merge in shared content now that sync is back on
-        reloadAndMerge(from: url)
-        startFileMonitor()
-    }
+    // MARK: - Security-Scoped Bookmark
 
-    // MARK: File Sync Internals
-
-    private func saveDataFileBookmark(for url: URL) -> Bool {
+    /// Save a directory-scoped bookmark for the data folder (covers both epanel.json and notes.txt)
+    private func saveDataFolderBookmark(for url: URL) -> Bool {
         do {
             let bookmarkData = try url.bookmarkData(
                 options: .withSecurityScope,
                 includingResourceValuesForKeys: nil,
                 relativeTo: nil
             )
-            UserDefaults.standard.set(bookmarkData, forKey: Self.dataFileBookmarkKey)
+            UserDefaults.standard.set(bookmarkData, forKey: Self.dataFolderBookmarkKey)
             return true
         } catch {
-            print("Failed to create bookmark for data file: \(error)")
+            print("Failed to create directory bookmark: \(error)")
             return false
         }
     }
 
-    private func resolveDataFileBookmark() -> URL? {
-        guard let bookmarkData = UserDefaults.standard.data(forKey: Self.dataFileBookmarkKey) else {
+    /// Resolve a previously-saved directory-scoped bookmark
+    private func resolveDataFolderBookmark() -> URL? {
+        guard let bookmarkData = UserDefaults.standard.data(forKey: Self.dataFolderBookmarkKey) else {
             return nil
         }
         do {
@@ -989,177 +1331,18 @@ class DataStore: ObservableObject {
                 bookmarkDataIsStale: &isStale
             )
             if isStale {
-                // Refresh the bookmark
-                _ = saveDataFileBookmark(for: url)
+                _ = saveDataFolderBookmark(for: url)
             }
             return url
         } catch {
-            print("Failed to resolve data file bookmark: \(error)")
+            print("Failed to resolve directory bookmark: \(error)")
+            // Clear stale bookmark so user gets re-prompted
+            UserDefaults.standard.removeObject(forKey: Self.dataFolderBookmarkKey)
             return nil
         }
     }
 
-    private func startFileMonitor() {
-        guard let url = fileSyncURL, url.startAccessingSecurityScopedResource() else { return }
-
-        // If the file exists now, start/restart the kernel monitor
-        if FileManager.default.fileExists(atPath: url.path) {
-            fileMonitorRetryTimer?.cancel()
-            fileMonitorRetryTimer = nil
-
-            // Only restart if not already monitoring this URL
-            if fileMonitor == nil {
-                let monitor = FileMonitor(url: url, queue: .main)
-                monitor.onChange = { [weak self] in
-                    self?.handleFileChanged()
-                }
-                monitor.start()
-                fileMonitor = monitor
-            }
-            return
-        }
-
-        // File doesn't exist yet (iCloud Drive offline / evicted).
-        // Stop any dead monitor and poll every 10 seconds.
-        fileMonitor?.stop()
-        fileMonitor = nil
-
-        if fileMonitorRetryTimer != nil { return } // already retrying
-
-        let timer = DispatchSource.makeTimerSource(queue: .main)
-        timer.schedule(deadline: .now() + 10, repeating: 10)
-        timer.setEventHandler { [weak self] in
-            self?.startFileMonitor()
-        }
-        timer.resume()
-        fileMonitorRetryTimer = timer
-    }
-
-    /// Called when the file monitor detects a change to the shared JSON file
-    private func handleFileChanged() {
-        guard let url = fileSyncURL else { return }
-        reloadAndMerge(from: url)
-    }
-
-    /// Reload JSON from the given URL and merge with in-memory data
-    private func reloadAndMerge(from url: URL) {
-        guard url.startAccessingSecurityScopedResource() else { return }
-        defer { url.stopAccessingSecurityScopedResource() }
-
-        guard FileManager.default.fileExists(atPath: url.path),
-              let jsonData = try? Data(contentsOf: url) else { return }
-
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        guard let incoming = try? decoder.decode(EPanelData.self, from: jsonData) else { return }
-
-        DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            self.isApplyingFileChange = true
-            defer { self.isApplyingFileChange = false }
-
-            self.data = self.mergeData(local: self.data, remote: incoming)
-            self.lastSyncDate = Date()
-        }
-    }
-
-    /// Structured merge: union by UUID, prefer newer date on conflicting entries.
-    /// Notes are intentionally excluded — they stay local-only per Mac.
-    private func mergeData(local: EPanelData, remote: EPanelData) -> EPanelData {
-        var merged = local
-
-        // Merge root folder entries
-        merged.rootFolder.entries = mergeEntries(local: local.rootFolder.entries, remote: remote.rootFolder.entries)
-
-        // Merge subfolders recursively
-        merged.rootFolder.subfolders = mergeFolders(local: local.rootFolder.subfolders, remote: remote.rootFolder.subfolders)
-
-        // Notes: always keep local — not synced
-
-        return merged
-    }
-
-    private func mergeEntries(local: [Entry], remote: [Entry]) -> [Entry] {
-        var entryMap: [UUID: Entry] = [:]
-        var urlMap: [String: UUID] = [:] // normalized URL → UUID
-
-        for e in local {
-            entryMap[e.id] = e
-            urlMap[e.text.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)] = e.id
-        }
-        for e in remote {
-            let normalizedURL = e.text.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
-            if let existing = entryMap[e.id] {
-                // Same UUID — prefer entry with newer date
-                if e.date > existing.date {
-                    entryMap[e.id] = e
-                }
-            } else if let existingID = urlMap[normalizedURL], let existing = entryMap[existingID] {
-                // Same URL, different UUID — duplicate from race between Safari sync and iCloud sync.
-                // Keep the entry with the newer date.
-                if e.date > existing.date {
-                    entryMap[existingID] = e
-                    urlMap[normalizedURL] = e.id
-                }
-            } else {
-                entryMap[e.id] = e
-                urlMap[normalizedURL] = e.id
-            }
-        }
-        return entryMap.values.sorted { $0.date > $1.date }
-    }
-
-    private func mergeFolders(local: [Folder], remote: [Folder]) -> [Folder] {
-        var folderMap: [UUID: Folder] = [:]
-        for f in local { folderMap[f.id] = f }
-        for f in remote {
-            if var existing = folderMap[f.id] {
-                // Merge entries and subfolders
-                existing.entries = mergeEntries(local: existing.entries, remote: f.entries)
-                existing.subfolders = mergeFolders(local: existing.subfolders, remote: f.subfolders)
-                // Prefer remote name
-                existing.name = f.name
-                folderMap[f.id] = existing
-            } else {
-                folderMap[f.id] = f
-            }
-        }
-        return folderMap.values.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
-    }
-
-    /// Debounced push to shared file after local edits. Notes are stripped — they stay local-only.
-    private func scheduleFileSyncPush() {
-        fileSyncPushWorkItem?.cancel()
-        let workItem = DispatchWorkItem { [weak self] in
-            guard let self, self.fileSyncEnabled, let url = self.fileSyncURL else { return }
-            guard url.startAccessingSecurityScopedResource() else { return }
-            defer { url.stopAccessingSecurityScopedResource() }
-
-            // Temporarily stop monitoring to avoid self-triggering
-            self.fileMonitor?.stop()
-            defer { self.startFileMonitor() }
-
-            // Strip notes — they are local-only per Mac
-            let dataToWrite = self.data.withoutNotes
-            do {
-                let encoder = JSONEncoder()
-                encoder.dateEncodingStrategy = .iso8601
-                encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-                let jsonData = try encoder.encode(dataToWrite)
-                try jsonData.write(to: url, options: .atomic)
-            } catch {
-                print("File sync push failed: \(error)")
-            }
-        }
-        fileSyncPushWorkItem = workItem
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0, execute: workItem)
-    }
-
     // MARK: - Helpers
-
-    private func getDocumentsDirectory() -> URL {
-        FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-    }
 
     func showAlert(message: String) {
         DispatchQueue.main.async {
