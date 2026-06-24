@@ -6,6 +6,7 @@
 #include <QDir>
 #include <QFile>
 #include <QSaveFile>
+#include <QLockFile>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonArray>
@@ -244,6 +245,15 @@ void DataStore::saveDataNow()
     if (path.isEmpty()) return;
 
     m_saveDataTimer->stop();
+
+    QLockFile lock(path + QStringLiteral(".lock"));
+    lock.setStaleLockTime(5000);
+    if (!lock.tryLock(2000)) {
+        // Another instance is currently writing; retry shortly.
+        scheduleSaveData();
+        return;
+    }
+
     QJsonDocument doc = m_data.toJsonDocument();
     QByteArray jsonBytes = doc.toJson(QJsonDocument::Indented);
     m_lastWrittenDataHash = QCryptographicHash::hash(jsonBytes, QCryptographicHash::Sha256);
@@ -327,8 +337,15 @@ void DataStore::handleExternalDataChange()
     if (!hasDataChanged(incoming)) return;
 
     m_applyingExternalChange = true;
-    m_data = incoming;
-    deduplicate(m_data.rootFolder);
+    if (hasUnsavedDataChanges()) {
+        // Preserve local edits while absorbing remote additions.
+        mergeData(incoming);
+        deduplicate(m_data.rootFolder);
+    } else {
+        // No local pending changes: let the file win so deletions propagate.
+        m_data = incoming;
+        deduplicate(m_data.rootFolder);
+    }
     m_lastSyncDate = QDateTime::currentDateTimeUtc();
     emit dataChanged();
     emit lastSyncDateChanged(m_lastSyncDate);
@@ -841,6 +858,72 @@ bool DataStore::foldersEqual(const Folder &a, const Folder &b) const
 bool DataStore::hasDataChanged(const EPanelData &remote) const
 {
     return !foldersEqual(m_data.rootFolder, remote.rootFolder);
+}
+
+bool DataStore::hasUnsavedDataChanges() const
+{
+    return m_saveDataTimer && m_saveDataTimer->isActive();
+}
+
+void DataStore::mergeData(const EPanelData &remote)
+{
+    mergeFolder(m_data.rootFolder, remote.rootFolder);
+}
+
+void DataStore::mergeFolder(Folder &local, const Folder &remote)
+{
+    // Merge entries by UUID first, then by text.
+    QSet<QUuid> localEntryIds;
+    QSet<QString> localEntryTexts;
+    for (const auto &e : local.entries) {
+        if (!e.id.isNull()) localEntryIds.insert(e.id);
+        localEntryTexts.insert(e.text.toLower().trimmed());
+    }
+
+    for (const auto &re : remote.entries) {
+        bool matched = false;
+        if (!re.id.isNull() && localEntryIds.contains(re.id)) {
+            matched = true;
+        } else {
+            const QString normalized = re.text.toLower().trimmed();
+            if (localEntryTexts.contains(normalized)) {
+                matched = true;
+            } else {
+                localEntryTexts.insert(normalized);
+            }
+        }
+        if (!matched) {
+            local.entries.append(re);
+        }
+    }
+
+    // Merge subfolders by UUID first, then by name.
+    QHash<QUuid, Folder *> foldersById;
+    QHash<QString, Folder *> foldersByName;
+    for (auto &lf : local.subfolders) {
+        if (!lf.id.isNull()) foldersById[lf.id] = &lf;
+        foldersByName[lf.name.toLower()] = &lf;
+    }
+
+    for (const auto &rf : remote.subfolders) {
+        Folder *match = nullptr;
+        if (!rf.id.isNull()) {
+            auto it = foldersById.find(rf.id);
+            if (it != foldersById.end()) match = it.value();
+        }
+        if (!match) {
+            auto it = foldersByName.find(rf.name.toLower());
+            if (it != foldersByName.end()) match = it.value();
+        }
+
+        if (match) {
+            const bool wasCollapsed = match->isCollapsed;
+            mergeFolder(*match, rf);
+            match->isCollapsed = wasCollapsed;
+        } else {
+            local.subfolders.append(rf);
+        }
+    }
 }
 
 void DataStore::moveExistingContentToOriginalFolder()

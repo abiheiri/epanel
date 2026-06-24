@@ -10,6 +10,7 @@
 #include <QDateTime>
 #include <QUuid>
 #include <QtDebug>
+#include <QLockFile>
 
 #import <Foundation/Foundation.h>
 
@@ -343,11 +344,27 @@ void SafariSyncManager::writebackToSafari()
     if (m_writebackInProgress) return;
     m_writebackInProgress = true;
 
+    // Coordinate with other running ePanel instances. Only one instance writes
+    // back to Safari at a time; the others rely on the shared data file to
+    // propagate their changes to the lock holder.
+    QLockFile lock(m_store->dataFolderPath() + QStringLiteral("/epanel-safari.lock"));
+    lock.setStaleLockTime(5000);
+    if (!lock.tryLock(2000)) {
+        m_writebackInProgress = false;
+        return;
+    }
+
     id plist = readPlist(m_plistPath);
-    if (![plist isKindOfClass:[NSDictionary class]]) return;
+    if (![plist isKindOfClass:[NSDictionary class]]) {
+        m_writebackInProgress = false;
+        return;
+    }
     NSMutableDictionary *root = [NSMutableDictionary dictionaryWithDictionary:(NSDictionary *)plist];
     NSArray *existingChildren = root[@"Children"];
-    if (![existingChildren isKindOfClass:[NSArray class]]) return;
+    if (![existingChildren isKindOfClass:[NSArray class]]) {
+        m_writebackInProgress = false;
+        return;
+    }
 
     NSMutableDictionary *urlToLeaf = [NSMutableDictionary dictionary];
     collectLeaves(existingChildren, urlToLeaf);

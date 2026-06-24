@@ -6,6 +6,7 @@
 #include <QFileSystemWatcher>
 #include <QDateTime>
 #include <QUuid>
+#include <QLockFile>
 #include <memory>
 #include <functional>
 
@@ -97,6 +98,10 @@ private:
 
     void handleExternalDataChange();
     void handleExternalNotesChange();
+
+    void mergeData(const EPanelData &remote);
+    void mergeFolder(Folder &local, const Folder &remote);
+    bool hasUnsavedDataChanges() const;
 
     void importJson(const QString &path);
     void importCsv(const QString &path);
