@@ -39,6 +39,9 @@ private:
     QVector<SelectedItem> collectSelectedItems() const;
     void restoreSelection(const QVector<SelectedItem> &items);
 
+    QSet<QUuid> collectExpandedFolderIds(const QModelIndex &proxyParent = QModelIndex()) const;
+    void restoreExpandedFolders(const QSet<QUuid> &ids, const QModelIndex &proxyParent = QModelIndex());
+
     QUuid folderIdForProxyIndex(const QModelIndex &proxyIndex) const;
     QSet<QUuid> descendantFolderIds(const QUuid &folderId) const;
 

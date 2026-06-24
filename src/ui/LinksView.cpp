@@ -294,9 +294,11 @@ void LinksView::onMoveItems()
 void LinksView::onDataChanged()
 {
     QVector<SelectedItem> selected = collectSelectedItems();
+    QSet<QUuid> expanded = collectExpandedFolderIds();
 
     m_model->updateFromData();
 
+    restoreExpandedFolders(expanded);
     restoreSelection(selected);
 }
 
@@ -333,6 +335,52 @@ void LinksView::restoreSelection(const QVector<SelectedItem> &items)
     if (firstProxy.isValid()) {
         sel->setCurrentIndex(firstProxy, QItemSelectionModel::Current | QItemSelectionModel::Rows);
         m_tree->scrollTo(firstProxy, QAbstractItemView::EnsureVisible);
+    }
+}
+
+QSet<QUuid> LinksView::collectExpandedFolderIds(const QModelIndex &proxyParent) const
+{
+    QSet<QUuid> result;
+    if (!m_tree || !m_filter) return result;
+
+    const QAbstractItemModel *model = m_tree->model();
+    const int rows = model->rowCount(proxyParent);
+    for (int row = 0; row < rows; ++row) {
+        QModelIndex proxyIndex = model->index(row, 0, proxyParent);
+        if (!proxyIndex.isValid()) continue;
+
+        QModelIndex sourceIndex = m_filter->mapToSource(proxyIndex);
+        if (m_model->typeForIndex(sourceIndex) != TreeModel::FolderType) continue;
+
+        QUuid id = m_model->idForIndex(sourceIndex);
+        if (id.isNull()) continue;
+
+        if (m_tree->isExpanded(proxyIndex)) {
+            result.insert(id);
+        }
+        result.unite(collectExpandedFolderIds(proxyIndex));
+    }
+    return result;
+}
+
+void LinksView::restoreExpandedFolders(const QSet<QUuid> &ids, const QModelIndex &proxyParent)
+{
+    if (!m_tree || !m_filter || ids.isEmpty()) return;
+
+    const QAbstractItemModel *model = m_tree->model();
+    const int rows = model->rowCount(proxyParent);
+    for (int row = 0; row < rows; ++row) {
+        QModelIndex proxyIndex = model->index(row, 0, proxyParent);
+        if (!proxyIndex.isValid()) continue;
+
+        QModelIndex sourceIndex = m_filter->mapToSource(proxyIndex);
+        if (m_model->typeForIndex(sourceIndex) != TreeModel::FolderType) continue;
+
+        QUuid id = m_model->idForIndex(sourceIndex);
+        if (ids.contains(id)) {
+            m_tree->setExpanded(proxyIndex, true);
+            restoreExpandedFolders(ids, proxyIndex);
+        }
     }
 }
 
