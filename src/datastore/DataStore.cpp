@@ -16,6 +16,7 @@
 #include <QApplication>
 #include <QPushButton>
 #include <algorithm>
+#include <utility>
 #include "models/Folder.h"
 
 #ifdef Q_OS_MACOS
@@ -540,7 +541,9 @@ void DataStore::moveFolder(const QUuid &folderId, const QUuid &toParentId)
     }
     if (index < 0) return;
 
-    Folder detached = sourceParent->subfolders.takeAt(index);
+    // Move the folder out to avoid a deep copy of its subtree.
+    Folder detached = std::move(sourceParent->subfolders[index]);
+    sourceParent->subfolders.removeAt(index);
 
     // Update the index for the moved subtree.
     unindexFolderRecursively(detached);
@@ -548,13 +551,13 @@ void DataStore::moveFolder(const QUuid &folderId, const QUuid &toParentId)
     Folder *targetParent = findFolder(toParentId);
     if (!targetParent) {
         // Re-index in place if target is missing so the tree stays consistent.
-        indexFolder(detached, currentParent);
-        sourceParent->subfolders.insert(index, detached);
+        sourceParent->subfolders.insert(index, std::move(detached));
+        indexFolder(sourceParent->subfolders[index], currentParent);
         return;
     }
 
-    targetParent->subfolders.prepend(detached);
-    indexFolder(detached, toParentId);
+    targetParent->subfolders.prepend(std::move(detached));
+    indexFolder(targetParent->subfolders.first(), toParentId);
 
     scheduleSaveData();
     emit dataChanged();
@@ -855,20 +858,19 @@ void DataStore::importSafariBookmarks(const QString &path)
                 ++dupes;
             }
         }
+        QHash<QString, int> targetSubfolderIndex;
+        for (int i = 0; i < target.subfolders.size(); ++i) {
+            targetSubfolderIndex[target.subfolders[i].name.toLower()] = i;
+        }
         for (const auto &sourceSub : source.subfolders) {
-            int existingIndex = -1;
-            for (int i = 0; i < target.subfolders.size(); ++i) {
-                if (target.subfolders[i].name.toLower() == sourceSub.name.toLower()) {
-                    existingIndex = i;
-                    break;
-                }
-            }
-            if (existingIndex >= 0) {
-                self(sourceSub, target.subfolders[existingIndex], urls, entriesAdded, foldersAdded, dupes, self);
+            auto it = targetSubfolderIndex.find(sourceSub.name.toLower());
+            if (it != targetSubfolderIndex.end()) {
+                self(sourceSub, target.subfolders[it.value()], urls, entriesAdded, foldersAdded, dupes, self);
             } else {
                 Folder newSub(sourceSub.name);
                 self(sourceSub, newSub, urls, entriesAdded, foldersAdded, dupes, self);
                 target.subfolders.append(newSub);
+                targetSubfolderIndex[newSub.name.toLower()] = target.subfolders.size() - 1;
                 ++foldersAdded;
             }
         }
@@ -938,10 +940,10 @@ QVector<Entry> DataStore::parseCsv(const QString &csv) const
     QVector<Entry> result;
     const QStringList lines = csv.split('\n');
     result.reserve(lines.size());
-    for (QString line : lines) {
-        line = line.trimmed();
-        if (line.isEmpty()) continue;
-        QStringList parts = line.split(',');
+    for (const QString &line : lines) {
+        const QString trimmed = line.trimmed();
+        if (trimmed.isEmpty()) continue;
+        QStringList parts = trimmed.split(',');
         if (parts.size() < 2) continue;
         QString dateStr = parts.takeLast();
         QDateTime date = QDateTime::fromString(dateStr, Qt::ISODate);
@@ -977,6 +979,7 @@ void DataStore::deduplicate(Folder &folder)
 {
     QSet<QString> seen;
     QVector<Entry> unique;
+    unique.reserve(folder.entries.size());
     for (const auto &entry : folder.entries) {
         QString normalized = entry.text.toLower().trimmed();
         if (!seen.contains(normalized)) {
@@ -999,13 +1002,28 @@ bool DataStore::foldersEqual(const Folder &a, const Folder &b) const
     for (const auto &e : b.entries) bEntries.insert(e.text.toLower().trimmed());
     if (aEntries != bEntries) return false;
 
-    return std::all_of(a.subfolders.begin(), a.subfolders.end(),
-                       [&](const Folder &subA) {
-                           return std::any_of(b.subfolders.begin(), b.subfolders.end(),
-                                              [&](const Folder &subB) {
-                                                  return subA.name.toLower() == subB.name.toLower() && foldersEqual(subA, subB);
-                                              });
-                       });
+    // Map each target subfolder name to its indices for O(1) lookup.
+    QHash<QString, QVector<int>> bSubfolders;
+    for (int i = 0; i < b.subfolders.size(); ++i) {
+        bSubfolders[b.subfolders[i].name.toLower()].append(i);
+    }
+
+    for (const Folder &subA : a.subfolders) {
+        auto it = bSubfolders.find(subA.name.toLower());
+        if (it == bSubfolders.end() || it.value().isEmpty()) return false;
+
+        bool matched = false;
+        for (auto idxIt = it.value().begin(); idxIt != it.value().end(); ) {
+            if (foldersEqual(subA, b.subfolders[*idxIt])) {
+                idxIt = it.value().erase(idxIt);
+                matched = true;
+                break;
+            }
+            ++idxIt;
+        }
+        if (!matched) return false;
+    }
+    return true;
 }
 
 bool DataStore::hasDataChanged(const EPanelData &remote) const
@@ -1112,20 +1130,19 @@ void DataStore::applyFullSafariImport(const QVector<Folder> &bookmarkFolders, co
                 urls.insert(normalized);
             }
         }
+        QHash<QString, int> targetSubfolderIndex;
+        for (int i = 0; i < target.subfolders.size(); ++i) {
+            targetSubfolderIndex[target.subfolders[i].name.toLower()] = i;
+        }
         for (const auto &sourceSub : source.subfolders) {
-            int existingIndex = -1;
-            for (int i = 0; i < target.subfolders.size(); ++i) {
-                if (target.subfolders[i].name.toLower() == sourceSub.name.toLower()) {
-                    existingIndex = i;
-                    break;
-                }
-            }
-            if (existingIndex >= 0) {
-                self(sourceSub, target.subfolders[existingIndex], urls, self);
+            auto it = targetSubfolderIndex.find(sourceSub.name.toLower());
+            if (it != targetSubfolderIndex.end()) {
+                self(sourceSub, target.subfolders[it.value()], urls, self);
             } else {
                 Folder newSub(sourceSub.name);
                 self(sourceSub, newSub, urls, self);
                 target.subfolders.append(newSub);
+                targetSubfolderIndex[newSub.name.toLower()] = target.subfolders.size() - 1;
             }
         }
     };
@@ -1170,34 +1187,36 @@ void DataStore::applySafariSync(const QVector<Folder> &bookmarkFolders, const Fo
         for (auto &sub : folder.subfolders) restore(sub);
     };
 
-    for (auto safariFolder : bookmarkFolders) {
-        restore(safariFolder);
+    for (const auto &safariFolder : bookmarkFolders) {
         bool found = false;
         for (int i = 0; i < m_data.rootFolder.subfolders.size(); ++i) {
             if (m_data.rootFolder.subfolders[i].name == safariFolder.name) {
                 m_data.rootFolder.subfolders[i] = safariFolder;
+                restore(m_data.rootFolder.subfolders[i]);
                 found = true;
                 break;
             }
         }
         if (!found && (!safariFolder.entries.isEmpty() || !safariFolder.subfolders.isEmpty())) {
             m_data.rootFolder.subfolders.append(safariFolder);
+            restore(m_data.rootFolder.subfolders.last());
         }
     }
 
-    Folder rl = readingList;
-    rl.name = "Reading List";
-    restore(rl);
-    bool found = false;
+    bool readingListFound = false;
     for (int i = 0; i < m_data.rootFolder.subfolders.size(); ++i) {
         if (m_data.rootFolder.subfolders[i].name == "Reading List") {
-            m_data.rootFolder.subfolders[i] = rl;
-            found = true;
+            m_data.rootFolder.subfolders[i] = readingList;
+            m_data.rootFolder.subfolders[i].name = "Reading List";
+            restore(m_data.rootFolder.subfolders[i]);
+            readingListFound = true;
             break;
         }
     }
-    if (!found && !rl.entries.isEmpty()) {
-        m_data.rootFolder.subfolders.prepend(rl);
+    if (!readingListFound && !readingList.entries.isEmpty()) {
+        m_data.rootFolder.subfolders.prepend(readingList);
+        m_data.rootFolder.subfolders.first().name = "Reading List";
+        restore(m_data.rootFolder.subfolders.first());
     }
 
     rebuildIndex();
