@@ -32,9 +32,6 @@ private:
     void buildUi();
     void openEntryText(const QString &text);
 
-    QSet<QUuid> collectExpandedFolders() const;
-    void restoreExpandedFolders(const QSet<QUuid> &ids);
-
     struct SelectedItem {
         TreeModel::ItemType type;
         QUuid id;

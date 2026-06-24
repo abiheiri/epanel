@@ -23,6 +23,7 @@ public:
     ~TreeModel() override;
 
     void rebuild();
+    void updateFromData();
 
     // QAbstractItemModel
     QModelIndex index(int row, int column, const QModelIndex &parent = QModelIndex()) const override;
@@ -71,6 +72,7 @@ private:
     Node *nodeForIndex(const QModelIndex &index) const;
     QModelIndex indexForNode(Node *node) const;
     void buildNode(Node *parentNode, const class Folder &folder);
+    void updateFolderNode(Node *parentNode, const class Folder &folder);
     Node *findNode(Node *node, const QUuid &id, ItemType type) const;
     int folderEntryCount(Node *folderNode) const;
 };

@@ -52,6 +52,122 @@ void TreeModel::rebuild()
     endResetModel();
 }
 
+void TreeModel::updateFromData()
+{
+    if (!m_store || !m_root) return;
+    updateFolderNode(m_root, m_store->data().rootFolder);
+}
+
+void TreeModel::updateFolderNode(Node *parentNode, const Folder &folder)
+{
+    struct DesiredChild {
+        enum Kind { FolderKind, EntryKind } kind;
+        QUuid id;
+        QString text;
+        int entryCount = 0;
+        const void *source = nullptr;
+    };
+
+    QVector<DesiredChild> desired;
+    desired.reserve(folder.subfolders.size() + folder.entries.size());
+    for (const Folder &sub : folder.subfolders) {
+        desired.append({DesiredChild::FolderKind, sub.id, sub.name, sub.totalEntryCount(), &sub});
+    }
+    for (const Entry &entry : folder.entries) {
+        desired.append({DesiredChild::EntryKind, entry.id, entry.text, 0, &entry});
+    }
+
+    int row = 0;
+    const QModelIndex parentIndex = indexForNode(parentNode);
+
+    while (row < desired.size()) {
+        const DesiredChild &want = desired[row];
+        const ItemType wantType = (want.kind == DesiredChild::FolderKind) ? FolderType : EntryType;
+
+        // Find the best match among remaining current children.
+        int matchIndex = -1;
+        for (int i = row; i < parentNode->children.size(); ++i) {
+            Node *n = parentNode->children[i];
+            if (n->type != wantType) continue;
+            if (!want.id.isNull() && n->id == want.id) {
+                matchIndex = i;
+                break; // UUID match is authoritative
+            }
+        }
+        if (matchIndex < 0) {
+            for (int i = row; i < parentNode->children.size(); ++i) {
+                Node *n = parentNode->children[i];
+                if (n->type != wantType) continue;
+                const QString normalized = want.text.toLower().trimmed();
+                if (n->text.toLower().trimmed() == normalized) {
+                    matchIndex = i;
+                    break;
+                }
+            }
+        }
+
+        if (matchIndex < 0) {
+            // Insert a new node at the current row.
+            Node *newNode = new Node;
+            newNode->type = wantType;
+            newNode->id = want.id;
+            newNode->text = want.text;
+            newNode->entryCount = want.entryCount;
+            newNode->parent = parentNode;
+            if (want.kind == DesiredChild::FolderKind) {
+                buildNode(newNode, *static_cast<const Folder *>(want.source));
+            }
+            beginInsertRows(parentIndex, row, row);
+            parentNode->children.insert(row, newNode);
+            endInsertRows();
+            ++row;
+        } else {
+            // Remove any stale children that stood between the current row and the match.
+            if (matchIndex > row) {
+                beginRemoveRows(parentIndex, row, matchIndex - 1);
+                for (int i = matchIndex - 1; i >= row; --i) {
+                    Node *n = parentNode->children.takeAt(i);
+                    clearNode(n);
+                }
+                endRemoveRows();
+            }
+
+            Node *match = parentNode->children[row];
+            bool displayChanged = false;
+            if (match->text != want.text) {
+                match->text = want.text;
+                displayChanged = true;
+            }
+            if (want.kind == DesiredChild::FolderKind) {
+                const int newCount = static_cast<const Folder *>(want.source)->totalEntryCount();
+                if (match->entryCount != newCount) {
+                    match->entryCount = newCount;
+                    displayChanged = true;
+                }
+            }
+            if (displayChanged) {
+                const QModelIndex idx = indexForNode(match);
+                emit dataChanged(idx, idx, {Qt::DisplayRole});
+            }
+
+            if (want.kind == DesiredChild::FolderKind) {
+                updateFolderNode(match, *static_cast<const Folder *>(want.source));
+            }
+            ++row;
+        }
+    }
+
+    // Remove any trailing children that are no longer present.
+    if (row < parentNode->children.size()) {
+        beginRemoveRows(parentIndex, row, parentNode->children.size() - 1);
+        while (parentNode->children.size() > row) {
+            Node *n = parentNode->children.takeLast();
+            clearNode(n);
+        }
+        endRemoveRows();
+    }
+}
+
 void TreeModel::buildNode(Node *parentNode, const Folder &folder)
 {
     // Folders come first, matching the model order used elsewhere.

@@ -293,53 +293,11 @@ void LinksView::onMoveItems()
 
 void LinksView::onDataChanged()
 {
-    QSet<QUuid> expanded = collectExpandedFolders();
     QVector<SelectedItem> selected = collectSelectedItems();
 
-    m_model->rebuild();
+    m_model->updateFromData();
 
-    restoreExpandedFolders(expanded);
     restoreSelection(selected);
-}
-
-QSet<QUuid> LinksView::collectExpandedFolders() const
-{
-    QSet<QUuid> ids;
-    std::function<void(const QModelIndex &)> traverse = [&](const QModelIndex &parent) {
-        int rows = m_filter->rowCount(parent);
-        for (int row = 0; row < rows; ++row) {
-            QModelIndex proxyIndex = m_filter->index(row, 0, parent);
-            QModelIndex sourceIndex = m_filter->mapToSource(proxyIndex);
-            if (m_model->typeForIndex(sourceIndex) != TreeModel::FolderType) continue;
-
-            QUuid id = m_model->idForIndex(sourceIndex);
-            if (m_tree->isExpanded(proxyIndex)) {
-                ids.insert(id);
-            }
-            traverse(proxyIndex);
-        }
-    };
-    traverse(QModelIndex());
-    return ids;
-}
-
-void LinksView::restoreExpandedFolders(const QSet<QUuid> &ids)
-{
-    std::function<void(const QModelIndex &)> traverse = [&](const QModelIndex &parent) {
-        int rows = m_filter->rowCount(parent);
-        for (int row = 0; row < rows; ++row) {
-            QModelIndex proxyIndex = m_filter->index(row, 0, parent);
-            QModelIndex sourceIndex = m_filter->mapToSource(proxyIndex);
-            if (m_model->typeForIndex(sourceIndex) != TreeModel::FolderType) continue;
-
-            QUuid id = m_model->idForIndex(sourceIndex);
-            if (ids.contains(id)) {
-                m_tree->expand(proxyIndex);
-                traverse(proxyIndex);
-            }
-        }
-    };
-    traverse(QModelIndex());
 }
 
 QVector<LinksView::SelectedItem> LinksView::collectSelectedItems() const
