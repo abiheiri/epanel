@@ -13,13 +13,14 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # GitHub-hosted Windows runners are server images; windows-2019 and
-          # windows-latest are the closest available equivalents to Windows 10
-          # and Windows 11 client builds.
+          # Qt 6.12.0 for Windows desktop only provides MSVC 2022 binaries
+          # (win64_msvc2022_64, win64_msvc2022_arm64_cross_compiled, win64_mingw,
+          # win64_llvm_mingw). Use the windows-2022 runner so the MSVC 2022
+          # toolchain is available. The resulting binary still runs on Windows 10.
           - name: windows-10
-            runner: windows-2019
+            runner: windows-2022
             os: windows
-            arch: win64_msvc2019_64
+            arch: win64_msvc2022_64
             package: zip
           - name: windows-11
             runner: windows-latest
@@ -52,12 +53,25 @@ jobs:
           arch: ${{ matrix.arch }}
           dir: ${{ github.workspace }}/qt
 
+      - name: Set up MSVC dev environment
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Install Ubuntu build dependencies
+        if: startsWith(matrix.runner, 'ubuntu-')
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential libgl1-mesa-dev libxkbcommon-x11-dev
+
       - name: Configure and build (Unix)
         if: runner.os != 'Windows'
         shell: bash
         run: |
           cmake -B build -S . \
             -DCMAKE_PREFIX_PATH="${QT_ROOT_DIR}" \
+            -DQt6_DIR="${QT_ROOT_DIR}/lib/cmake/Qt6" \
             -DCMAKE_BUILD_TYPE=Release
           cmake --build build --config Release
 
@@ -67,6 +81,7 @@ jobs:
         run: |
           cmake -B build -S . `
             -DCMAKE_PREFIX_PATH="${env:QT_ROOT_DIR}" `
+            -DQt6_DIR="${env:QT_ROOT_DIR}/lib/cmake/Qt6" `
             -DCMAKE_BUILD_TYPE=Release
           cmake --build build --config Release
 
