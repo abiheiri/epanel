@@ -3,12 +3,10 @@
 #include <QJsonArray>
 #include <QFile>
 
-static const QUuid RootFolderID("00000000-0000-0000-0000-000000000000");
-
 EPanelData EPanelData::empty()
 {
     EPanelData data;
-    data.rootFolder.id = RootFolderID;
+    data.rootFolder.id = Folder::rootFolderId();
     data.rootFolder.name = "/";
     return data;
 }
@@ -30,8 +28,8 @@ EPanelData EPanelData::fromJsonDocument(const QJsonDocument &doc)
         // Try legacy format
         data = fromLegacyJson(obj);
     }
-    if (data.rootFolder.id != RootFolderID) {
-        data.rootFolder.id = RootFolderID;
+    if (data.rootFolder.id != Folder::rootFolderId()) {
+        data.rootFolder.id = Folder::rootFolderId();
         data.rootFolder.name = "/";
     }
     return data;

@@ -77,6 +77,20 @@ void TreeModel::updateFolderNode(Node *parentNode, const Folder &folder)
         desired.append({DesiredChild::EntryKind, entry.id, entry.text, 0, &entry});
     }
 
+    // Build O(1) lookup maps for the current children. A node is only
+    // removed from these maps once it has been matched or discarded.
+    QHash<QUuid, Node *> uuidMap;
+    QHash<QString, Node *> nameMap;
+    for (Node *n : parentNode->children) {
+        if (!n->id.isNull() && !uuidMap.contains(n->id)) {
+            uuidMap[n->id] = n;
+        }
+        const QString normalized = n->text.toLower().trimmed();
+        if (!normalized.isEmpty() && !nameMap.contains(normalized)) {
+            nameMap[normalized] = n;
+        }
+    }
+
     int row = 0;
     const QModelIndex parentIndex = indexForNode(parentNode);
 
@@ -84,29 +98,20 @@ void TreeModel::updateFolderNode(Node *parentNode, const Folder &folder)
         const DesiredChild &want = desired[row];
         const ItemType wantType = (want.kind == DesiredChild::FolderKind) ? FolderType : EntryType;
 
-        // Find the best match among remaining current children.
-        int matchIndex = -1;
-        for (int i = row; i < parentNode->children.size(); ++i) {
-            const Node *n = parentNode->children[i];
-            if (n->type != wantType) continue;
-            if (!want.id.isNull() && n->id == want.id) {
-                matchIndex = i;
-                break; // UUID match is authoritative
-            }
-        }
-        if (matchIndex < 0) {
-            for (int i = row; i < parentNode->children.size(); ++i) {
-                const Node *n = parentNode->children[i];
-                if (n->type != wantType) continue;
-                const QString normalized = want.text.toLower().trimmed();
-                if (n->text.toLower().trimmed() == normalized) {
-                    matchIndex = i;
-                    break;
-                }
+        // O(1) lookup: UUID first, then name.
+        Node *match = nullptr;
+        auto uuidIt = uuidMap.find(want.id);
+        if (uuidIt != uuidMap.end() && uuidIt.value()->type == wantType) {
+            match = uuidIt.value();
+        } else {
+            const QString normalized = want.text.toLower().trimmed();
+            auto nameIt = nameMap.find(normalized);
+            if (nameIt != nameMap.end() && nameIt.value()->type == wantType) {
+                match = nameIt.value();
             }
         }
 
-        if (matchIndex < 0) {
+        if (!match) {
             // Insert a new node at the current row.
             Node *newNode = new Node;
             newNode->type = wantType;
@@ -122,19 +127,26 @@ void TreeModel::updateFolderNode(Node *parentNode, const Folder &folder)
             endInsertRows();
             ++row;
         } else {
+            // This node is now accounted for; remove it from the lookup maps.
+            uuidMap.remove(match->id);
+            nameMap.remove(match->text.toLower().trimmed());
+
             // Remove any stale children that stood between the current row and the match.
+            const int matchIndex = parentNode->children.indexOf(match);
             if (matchIndex > row) {
                 beginRemoveRows(parentIndex, row, matchIndex - 1);
                 for (int i = matchIndex - 1; i >= row; --i) {
                     Node *n = parentNode->children.takeAt(i);
+                    uuidMap.remove(n->id);
+                    nameMap.remove(n->text.toLower().trimmed());
                     clearNode(n);
                 }
                 endRemoveRows();
             }
 
-            Node *match = parentNode->children[row];
             bool displayChanged = false;
             if (match->text != want.text) {
+                nameMap.remove(match->text.toLower().trimmed());
                 match->text = want.text;
                 displayChanged = true;
             }
@@ -170,6 +182,8 @@ void TreeModel::updateFolderNode(Node *parentNode, const Folder &folder)
 
 void TreeModel::buildNode(Node *parentNode, const Folder &folder)
 {
+    parentNode->children.reserve(folder.subfolders.size() + folder.entries.size());
+
     // Folders come first, matching the model order used elsewhere.
     for (const Folder &sub : folder.subfolders) {
         Node *folderNode = new Node;

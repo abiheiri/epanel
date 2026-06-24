@@ -16,6 +16,8 @@ struct Folder {
     Folder() = default;
     explicit Folder(const QString &name);
 
+    static QUuid rootFolderId();
+
     bool isRoot() const;
     int totalEntryCount() const;
 

@@ -2,14 +2,21 @@
 #include <QJsonArray>
 #include <numeric>
 
+static const QUuid RootFolderId("00000000-0000-0000-0000-000000000000");
+
 Folder::Folder(const QString &name)
     : id(QUuid::createUuid()), name(name)
 {
 }
 
+QUuid Folder::rootFolderId()
+{
+    return RootFolderId;
+}
+
 bool Folder::isRoot() const
 {
-    return id.isNull();
+    return id == RootFolderId;
 }
 
 int Folder::totalEntryCount() const

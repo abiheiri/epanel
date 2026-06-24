@@ -6,6 +6,7 @@
 #include <QFileSystemWatcher>
 #include <QDateTime>
 #include <QUuid>
+#include <QHash>
 #include <QLockFile>
 #include <memory>
 #include <functional>
@@ -108,7 +109,6 @@ private:
     void importSafariBookmarks(const QString &path);
 
     QVector<Entry> parseCsv(const QString &csv) const;
-    QString formatCsv() const;
 
     Folder *findFolder(const QUuid &folderId);
     bool modifyFolder(const QUuid &folderId, const std::function<void(Folder &)> &modifier);
@@ -116,6 +116,12 @@ private:
     void deduplicate(Folder &folder);
     bool foldersEqual(const Folder &a, const Folder &b) const;
     bool hasDataChanged(const EPanelData &remote) const;
+
+    // UUID indexes to avoid O(n) recursive tree walks.
+    void rebuildIndex();
+    void indexFolder(Folder &folder, const QUuid &parentId);
+    void unindexFolderRecursively(Folder &folder);
+    void unindexEntry(const QUuid &entryId);
 
     void moveExistingContentToOriginalFolder();
     void applyFullSafariImport(const QVector<Folder> &bookmarkFolders, const Folder &readingList);
@@ -133,7 +139,18 @@ private:
     bool m_applyingExternalChange = false;
     bool m_syncingFromSafari = false;
     QByteArray m_lastWrittenDataHash;
+    QDateTime m_lastJsonModified;
+    qint64 m_lastJsonSize = 0;
     QString m_lastKnownNotesContent;
+    QDateTime m_lastNotesModified;
+    qint64 m_lastNotesSize = 0;
+
+    // folder id -> Folder* (live pointer into m_data tree)
+    QHash<QUuid, Folder *> m_folderIndex;
+    // entry id -> parent folder id
+    QHash<QUuid, QUuid> m_entryParentIndex;
+    // folder id -> parent folder id (root maps to null)
+    QHash<QUuid, QUuid> m_folderParentIndex;
 
     bool m_safariSyncEnabled = false;
     QDateTime m_lastSyncDate;

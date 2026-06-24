@@ -16,6 +16,7 @@
 #include <QApplication>
 #include <QPushButton>
 #include <algorithm>
+#include "models/Folder.h"
 
 #ifdef Q_OS_MACOS
 #include "platform/SafariSyncManager.h"
@@ -23,8 +24,6 @@
 
 static const QString DataFolderKey = "dataFolderPath";
 static const QString SafariSyncEnabledKey = "safariSyncEnabled";
-
-static QUuid s_rootFolderId("00000000-0000-0000-0000-000000000000");
 
 DataStore::DataStore(QObject *parent)
     : QObject(parent)
@@ -49,7 +48,7 @@ DataStore::DataStore(QObject *parent)
     });
 
     m_pollTimer = new QTimer(this);
-    m_pollTimer->setInterval(5000);
+    m_pollTimer->setInterval(30000);
     connect(m_pollTimer, &QTimer::timeout, this, [this]() {
         handleExternalDataChange();
         handleExternalNotesChange();
@@ -100,7 +99,7 @@ DataStore::~DataStore()
 
 QUuid DataStore::rootFolderId()
 {
-    return s_rootFolderId;
+    return Folder::rootFolderId();
 }
 
 const QString &DataStore::dataFolderPath() const
@@ -214,7 +213,58 @@ void DataStore::loadData()
     }
     deduplicate(loaded.rootFolder);
     m_data = loaded;
+    rebuildIndex();
+
+    QFileInfo info(path);
+    m_lastJsonModified = info.lastModified();
+    m_lastJsonSize = info.size();
+
     emit dataChanged();
+}
+
+void DataStore::rebuildIndex()
+{
+    m_folderIndex.clear();
+    m_entryParentIndex.clear();
+    m_folderParentIndex.clear();
+    indexFolder(m_data.rootFolder, QUuid());
+}
+
+void DataStore::indexFolder(Folder &folder, const QUuid &parentId)
+{
+    if (!folder.id.isNull()) {
+        m_folderIndex[folder.id] = &folder;
+        m_folderParentIndex[folder.id] = parentId;
+    }
+    for (const Entry &entry : folder.entries) {
+        if (!entry.id.isNull()) {
+            m_entryParentIndex[entry.id] = folder.id;
+        }
+    }
+    for (Folder &sub : folder.subfolders) {
+        indexFolder(sub, folder.id);
+    }
+}
+
+void DataStore::unindexFolderRecursively(Folder &folder)
+{
+    if (!folder.id.isNull()) {
+        m_folderIndex.remove(folder.id);
+        m_folderParentIndex.remove(folder.id);
+    }
+    for (const Entry &entry : folder.entries) {
+        if (!entry.id.isNull()) {
+            m_entryParentIndex.remove(entry.id);
+        }
+    }
+    for (Folder &sub : folder.subfolders) {
+        unindexFolderRecursively(sub);
+    }
+}
+
+void DataStore::unindexEntry(const QUuid &entryId)
+{
+    m_entryParentIndex.remove(entryId);
 }
 
 void DataStore::loadNotes()
@@ -224,9 +274,14 @@ void DataStore::loadNotes()
 
     QFile file(path);
     if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) return;
-    QString content = QString::fromUtf8(file.readAll());
+    const QString content = QString::fromUtf8(file.readAll());
     m_notes = content;
     m_lastKnownNotesContent = content;
+
+    QFileInfo info(path);
+    m_lastNotesModified = info.lastModified();
+    m_lastNotesSize = info.size();
+
     emit notesChanged(m_notes);
 }
 
@@ -267,7 +322,11 @@ void DataStore::saveDataNow()
     file.write(jsonBytes);
     if (!file.commit()) {
         showAlert(tr("Failed to save data: %1").arg(file.errorString()));
+        return;
     }
+    QFileInfo info(path);
+    m_lastJsonModified = info.lastModified();
+    m_lastJsonSize = info.size();
 }
 
 void DataStore::scheduleSaveNotes()
@@ -296,7 +355,11 @@ void DataStore::saveNotesNow()
     file.write(m_notes.toUtf8());
     if (!file.commit()) {
         showAlert(tr("Failed to save notes: %1").arg(file.errorString()));
+        return;
     }
+    QFileInfo info(path);
+    m_lastNotesModified = info.lastModified();
+    m_lastNotesSize = info.size();
 }
 
 void DataStore::startFileMonitoring()
@@ -324,18 +387,32 @@ void DataStore::handleExternalDataChange()
     const QString path = jsonFilePath();
     if (path.isEmpty() || !QFile::exists(path)) return;
 
+    // Lightweight mtime/size pre-check before reading/hashing the whole file.
+    const QFileInfo info(path);
+    const QDateTime mtime = info.lastModified();
+    const qint64 size = info.size();
+    if (mtime == m_lastJsonModified && size == m_lastJsonSize) return;
+
     QFile file(path);
     if (!file.open(QIODevice::ReadOnly)) return;
-    QByteArray bytes = file.readAll();
-    QByteArray hash = QCryptographicHash::hash(bytes, QCryptographicHash::Sha256);
-    if (hash == m_lastWrittenDataHash) return;
+    const QByteArray bytes = file.readAll();
+    const QByteArray hash = QCryptographicHash::hash(bytes, QCryptographicHash::Sha256);
+    if (hash == m_lastWrittenDataHash) {
+        m_lastJsonModified = mtime;
+        m_lastJsonSize = size;
+        return;
+    }
 
     QJsonParseError error;
     QJsonDocument doc = QJsonDocument::fromJson(bytes, &error);
     if (doc.isNull()) return;
 
     EPanelData incoming = EPanelData::fromJsonDocument(doc);
-    if (!hasDataChanged(incoming)) return;
+    if (!hasDataChanged(incoming)) {
+        m_lastJsonModified = mtime;
+        m_lastJsonSize = size;
+        return;
+    }
 
     m_applyingExternalChange = true;
     if (hasUnsavedDataChanges()) {
@@ -347,6 +424,9 @@ void DataStore::handleExternalDataChange()
         m_data = incoming;
         deduplicate(m_data.rootFolder);
     }
+    rebuildIndex();
+    m_lastJsonModified = mtime;
+    m_lastJsonSize = size;
     m_lastSyncDate = QDateTime::currentDateTimeUtc();
     emit dataChanged();
     emit lastSyncDateChanged(m_lastSyncDate);
@@ -358,9 +438,17 @@ void DataStore::handleExternalNotesChange()
     const QString path = notesFilePath();
     if (path.isEmpty() || !QFile::exists(path)) return;
 
+    // Lightweight mtime/size pre-check before reading the file.
+    const QFileInfo info(path);
+    const QDateTime mtime = info.lastModified();
+    const qint64 size = info.size();
+    if (mtime == m_lastNotesModified && size == m_lastNotesSize) return;
+
     QFile file(path);
     if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) return;
-    QString content = QString::fromUtf8(file.readAll());
+    const QString content = QString::fromUtf8(file.readAll());
+    m_lastNotesModified = mtime;
+    m_lastNotesSize = size;
     if (content == m_lastKnownNotesContent) return;
 
     m_lastKnownNotesContent = content;
@@ -370,17 +458,25 @@ void DataStore::handleExternalNotesChange()
 
 void DataStore::createFolder(const QString &name, const QUuid &parentId)
 {
+    QUuid newFolderId;
     modifyFolder(parentId, [&](Folder &folder) {
         Folder newFolder(name);
+        newFolderId = newFolder.id;
         folder.subfolders.prepend(newFolder);
     });
+    if (!newFolderId.isNull()) {
+        Folder *parent = findFolder(parentId);
+        if (parent && !parent->subfolders.isEmpty() && parent->subfolders.first().id == newFolderId) {
+            indexFolder(parent->subfolders.first(), parentId);
+        }
+    }
     scheduleSaveData();
     emit dataChanged();
 }
 
 void DataStore::renameFolder(const QUuid &folderId, const QString &newName)
 {
-    if (folderId == s_rootFolderId) return;
+    if (folderId == Folder::rootFolderId()) return;
     if (modifyFolder(folderId, [&](Folder &folder) { folder.name = newName; })) {
         scheduleSaveData();
         emit dataChanged();
@@ -389,28 +485,33 @@ void DataStore::renameFolder(const QUuid &folderId, const QString &newName)
 
 void DataStore::deleteFolder(const QUuid &folderId)
 {
-    if (folderId == s_rootFolderId) return;
-    std::function<bool(QVector<Folder> &)> removeRecursively = [&](QVector<Folder> &folders) -> bool {
-        for (int i = 0; i < folders.size(); ++i) {
-            if (folders[i].id == folderId) {
-                folders.removeAt(i);
-                return true;
-            }
-            if (removeRecursively(folders[i].subfolders)) {
-                return true;
-            }
+    if (folderId == Folder::rootFolderId()) return;
+
+    Folder *folder = findFolder(folderId);
+    if (!folder) return;
+
+    // Capture parent id before unindexing the subtree.
+    const QUuid parentId = m_folderParentIndex.value(folderId);
+
+    // Remove the folder and all descendants from the indexes.
+    unindexFolderRecursively(*folder);
+
+    Folder *parent = findFolder(parentId);
+    if (!parent) return;
+
+    for (int i = 0; i < parent->subfolders.size(); ++i) {
+        if (parent->subfolders[i].id == folderId) {
+            parent->subfolders.removeAt(i);
+            scheduleSaveData();
+            emit dataChanged();
+            return;
         }
-        return false;
-    };
-    if (removeRecursively(m_data.rootFolder.subfolders)) {
-        scheduleSaveData();
-        emit dataChanged();
     }
 }
 
 void DataStore::toggleFolderCollapsed(const QUuid &folderId)
 {
-    if (folderId == s_rootFolderId) return;
+    if (folderId == Folder::rootFolderId()) return;
     if (modifyFolder(folderId, [&](Folder &folder) { folder.isCollapsed = !folder.isCollapsed; })) {
         scheduleSaveData();
         emit dataChanged();
@@ -419,60 +520,59 @@ void DataStore::toggleFolderCollapsed(const QUuid &folderId)
 
 void DataStore::moveFolder(const QUuid &folderId, const QUuid &toParentId)
 {
-    if (folderId == s_rootFolderId) return;
+    if (folderId == Folder::rootFolderId()) return;
     if (folderId == toParentId) return;
     if (isDescendant(toParentId, folderId)) return;
 
-    // Check current parent
-    QUuid currentParent = findParentFolderId(folderId);
+    // Check current parent via index.
+    const QUuid currentParent = m_folderParentIndex.value(folderId);
     if (currentParent == toParentId) return;
 
-    // Detach folder from current location
-    std::function<bool(QVector<Folder> &, Folder &)> detach = [&](QVector<Folder> &folders, Folder &out) -> bool {
-        for (int i = 0; i < folders.size(); ++i) {
-            if (folders[i].id == folderId) {
-                out = folders.takeAt(i);
-                return true;
-            }
-            if (detach(folders[i].subfolders, out)) {
-                return true;
-            }
+    Folder *sourceParent = findFolder(currentParent);
+    if (!sourceParent) return;
+
+    int index = -1;
+    for (int i = 0; i < sourceParent->subfolders.size(); ++i) {
+        if (sourceParent->subfolders[i].id == folderId) {
+            index = i;
+            break;
         }
-        return false;
-    };
+    }
+    if (index < 0) return;
 
-    Folder detached;
-    if (!detach(m_data.rootFolder.subfolders, detached)) return;
+    Folder detached = sourceParent->subfolders.takeAt(index);
 
-    modifyFolder(toParentId, [&](Folder &folder) {
-        folder.subfolders.prepend(detached);
-    });
+    // Update the index for the moved subtree.
+    unindexFolderRecursively(detached);
+
+    Folder *targetParent = findFolder(toParentId);
+    if (!targetParent) {
+        // Re-index in place if target is missing so the tree stays consistent.
+        indexFolder(detached, currentParent);
+        sourceParent->subfolders.insert(index, detached);
+        return;
+    }
+
+    targetParent->subfolders.prepend(detached);
+    indexFolder(detached, toParentId);
+
     scheduleSaveData();
     emit dataChanged();
 }
 
 bool DataStore::isDescendant(const QUuid &folderId, const QUuid &ancestorId) const
 {
-    const Folder *ancestor = nullptr;
-    std::function<bool(const Folder &)> findAncestor = [&](const Folder &folder) -> bool {
-        if (folder.id == ancestorId) {
-            ancestor = &folder;
-            return true;
-        }
-        return std::any_of(folder.subfolders.begin(), folder.subfolders.end(),
-                           [&](const Folder &sub) { return findAncestor(sub); });
-    };
-    findAncestor(m_data.rootFolder);
-    if (!ancestor) return false;
+    if (folderId == ancestorId) return false;
 
-    std::function<bool(const QVector<Folder> &)> findDescendant = [&](const QVector<Folder> &folders) -> bool {
-        for (const auto &folder : folders) {
-            if (folder.id == folderId) return true;
-            if (findDescendant(folder.subfolders)) return true;
-        }
-        return false;
-    };
-    return findDescendant(ancestor->subfolders);
+    // Walk up the parent chain from folderId.
+    QUuid current = folderId;
+    while (!current.isNull() && current != Folder::rootFolderId()) {
+        auto it = m_folderParentIndex.find(current);
+        if (it == m_folderParentIndex.end()) break;
+        current = it.value();
+        if (current == ancestorId) return true;
+    }
+    return false;
 }
 
 void DataStore::addEntry(const Entry &entry, const QUuid &folderId)
@@ -480,113 +580,176 @@ void DataStore::addEntry(const Entry &entry, const QUuid &folderId)
     modifyFolder(folderId, [&](Folder &folder) {
         folder.entries.append(entry);
     });
+    if (!entry.id.isNull()) {
+        m_entryParentIndex[entry.id] = folderId;
+    }
     scheduleSaveData();
     emit dataChanged();
 }
 
 void DataStore::deleteEntry(const QUuid &entryId)
 {
-    std::function<bool(Folder &)> removeRecursively = [&](Folder &folder) -> bool {
-        for (int i = 0; i < folder.entries.size(); ++i) {
-            if (folder.entries[i].id == entryId) {
-                folder.entries.removeAt(i);
-                return true;
-            }
+    auto parentIt = m_entryParentIndex.find(entryId);
+    if (parentIt == m_entryParentIndex.end()) return;
+
+    Folder *folder = findFolder(parentIt.value());
+    if (!folder) return;
+
+    for (int i = 0; i < folder->entries.size(); ++i) {
+        if (folder->entries[i].id == entryId) {
+            folder->entries.removeAt(i);
+            m_entryParentIndex.remove(entryId);
+            scheduleSaveData();
+            emit dataChanged();
+            return;
         }
-        for (auto &sub : folder.subfolders) {
-            if (removeRecursively(sub)) return true;
-        }
-        return false;
-    };
-    if (removeRecursively(m_data.rootFolder)) {
-        scheduleSaveData();
-        emit dataChanged();
     }
 }
 
 void DataStore::deleteEntries(const QSet<QUuid> &ids)
 {
-    for (const auto &id : ids) {
-        deleteEntry(id);
+    if (ids.isEmpty()) return;
+
+    // Group entries by parent folder so each folder is scanned once.
+    QHash<QUuid, QSet<QUuid>> entriesByFolder;
+    for (const QUuid &id : ids) {
+        auto parentIt = m_entryParentIndex.find(id);
+        if (parentIt != m_entryParentIndex.end()) {
+            entriesByFolder[parentIt.value()].insert(id);
+        }
+    }
+
+    bool changed = false;
+    for (auto it = entriesByFolder.begin(); it != entriesByFolder.end(); ++it) {
+        Folder *folder = findFolder(it.key());
+        if (!folder) continue;
+        const QSet<QUuid> &toRemove = it.value();
+        QVector<Entry> kept;
+        kept.reserve(folder->entries.size());
+        for (const Entry &entry : folder->entries) {
+            if (!toRemove.contains(entry.id)) {
+                kept.append(entry);
+            } else {
+                m_entryParentIndex.remove(entry.id);
+                changed = true;
+            }
+        }
+        folder->entries = kept;
+    }
+
+    if (changed) {
+        scheduleSaveData();
+        emit dataChanged();
     }
 }
 
 void DataStore::moveEntry(const QUuid &entryId, const QUuid &toFolderId)
 {
-    if (findParentFolderId(entryId) == toFolderId) return;
+    auto parentIt = m_entryParentIndex.find(entryId);
+    if (parentIt == m_entryParentIndex.end()) return;
+    if (parentIt.value() == toFolderId) return;
+
+    Folder *sourceFolder = findFolder(parentIt.value());
+    if (!sourceFolder) return;
 
     Entry moved;
-    std::function<bool(Folder &)> removeRecursively = [&](Folder &folder) -> bool {
-        for (int i = 0; i < folder.entries.size(); ++i) {
-            if (folder.entries[i].id == entryId) {
-                moved = folder.entries.takeAt(i);
-                return true;
-            }
+    int index = -1;
+    for (int i = 0; i < sourceFolder->entries.size(); ++i) {
+        if (sourceFolder->entries[i].id == entryId) {
+            index = i;
+            break;
         }
-        for (auto &sub : folder.subfolders) {
-            if (removeRecursively(sub)) return true;
-        }
-        return false;
-    };
-    if (!removeRecursively(m_data.rootFolder)) return;
+    }
+    if (index < 0) return;
 
-    modifyFolder(toFolderId, [&](Folder &folder) {
-        folder.entries.append(moved);
-    });
+    moved = sourceFolder->entries.takeAt(index);
+    m_entryParentIndex.remove(entryId);
+
+    Folder *targetFolder = findFolder(toFolderId);
+    if (!targetFolder) {
+        // Roll back if target is missing.
+        sourceFolder->entries.insert(index, moved);
+        m_entryParentIndex[entryId] = parentIt.value();
+        return;
+    }
+
+    targetFolder->entries.append(moved);
+    m_entryParentIndex[entryId] = toFolderId;
+
     scheduleSaveData();
     emit dataChanged();
 }
 
 void DataStore::moveEntries(const QVector<QUuid> &entryIds, const QUuid &toFolderId)
 {
-    for (const auto &id : entryIds) {
-        moveEntry(id, toFolderId);
+    if (entryIds.isEmpty()) return;
+
+    // Group entries by source folder so each source folder is scanned once.
+    QHash<QUuid, QVector<QUuid>> idsBySourceFolder;
+    for (const QUuid &id : entryIds) {
+        auto parentIt = m_entryParentIndex.find(id);
+        if (parentIt != m_entryParentIndex.end() && parentIt.value() != toFolderId) {
+            idsBySourceFolder[parentIt.value()].append(id);
+        }
+    }
+
+    Folder *targetFolder = findFolder(toFolderId);
+    if (!targetFolder) return;
+
+    bool changed = false;
+    for (auto it = idsBySourceFolder.begin(); it != idsBySourceFolder.end(); ++it) {
+        Folder *sourceFolder = findFolder(it.key());
+        if (!sourceFolder) continue;
+
+        const QVector<QUuid> &toMove = it.value();
+        QSet<QUuid> moveSet(toMove.begin(), toMove.end());
+
+        QVector<Entry> kept;
+        kept.reserve(sourceFolder->entries.size());
+        for (const Entry &entry : sourceFolder->entries) {
+            if (moveSet.contains(entry.id)) {
+                targetFolder->entries.append(entry);
+                m_entryParentIndex[entry.id] = toFolderId;
+                changed = true;
+            } else {
+                kept.append(entry);
+            }
+        }
+        sourceFolder->entries = kept;
+    }
+
+    if (changed) {
+        scheduleSaveData();
+        emit dataChanged();
     }
 }
 
 Entry *DataStore::findEntry(const QUuid &entryId)
 {
-    std::function<Entry*(Folder &)> findRecursively = [&](Folder &folder) -> Entry* {
-        auto it = std::find_if(folder.entries.begin(), folder.entries.end(),
-                               [&](const Entry &entry) { return entry.id == entryId; });
-        if (it != folder.entries.end()) return &(*it);
-        for (auto &sub : folder.subfolders) {
-            if (Entry *found = findRecursively(sub)) return found;
-        }
-        return nullptr;
-    };
-    return findRecursively(m_data.rootFolder);
+    auto parentIt = m_entryParentIndex.find(entryId);
+    if (parentIt == m_entryParentIndex.end()) return nullptr;
+
+    Folder *folder = findFolder(parentIt.value());
+    if (!folder) return nullptr;
+
+    auto it = std::find_if(folder->entries.begin(), folder->entries.end(),
+                           [&](const Entry &entry) { return entry.id == entryId; });
+    return it != folder->entries.end() ? &(*it) : nullptr;
 }
 
 QUuid DataStore::findParentFolderId(const QUuid &itemId) const
 {
-    // If item is a folder, return its own id (so entries add to it)
-    std::function<QUuid(const Folder &)> findFolderId = [&](const Folder &folder) -> QUuid {
-        if (folder.id == itemId) return folder.id;
-        for (const auto &sub : folder.subfolders) {
-            QUuid found = findFolderId(sub);
-            if (!found.isNull()) return found;
-        }
-        return QUuid();
-    };
-    QUuid folderFound = findFolderId(m_data.rootFolder);
-    if (!folderFound.isNull()) return folderFound;
+    if (itemId == Folder::rootFolderId() || itemId.isNull()) return Folder::rootFolderId();
 
-    std::function<QUuid(const Folder &)> findEntryParent = [&](const Folder &folder) -> QUuid {
-        if (std::any_of(folder.entries.begin(), folder.entries.end(),
-                        [&](const Entry &entry) { return entry.id == itemId; })) {
-            return folder.id;
-        }
-        for (const auto &sub : folder.subfolders) {
-            QUuid found = findEntryParent(sub);
-            if (!found.isNull()) return found;
-        }
-        return QUuid();
-    };
-    QUuid entryParent = findEntryParent(m_data.rootFolder);
-    if (!entryParent.isNull()) return entryParent;
+    // Folders: return the folder's own id (so entries add to it)
+    auto folderIt = m_folderIndex.find(itemId);
+    if (folderIt != m_folderIndex.end()) return itemId;
 
-    return s_rootFolderId;
+    // Entries: return the parent folder id from the index
+    auto entryIt = m_entryParentIndex.find(itemId);
+    if (entryIt != m_entryParentIndex.end()) return entryIt.value();
+
+    return Folder::rootFolderId();
 }
 
 void DataStore::importFile(const QString &path)
@@ -615,6 +778,7 @@ void DataStore::importJson(const QString &path)
     }
     m_data = loaded;
     deduplicate(m_data.rootFolder);
+    rebuildIndex();
     scheduleSaveData();
     emit dataChanged();
 }
@@ -641,6 +805,7 @@ void DataStore::importCsv(const QString &path)
     collect(m_data.rootFolder);
 
     QVector<Entry> unique;
+    unique.reserve(imported.size());
     for (const auto &e : imported) {
         if (!existingTexts.contains(e.text)) unique.append(e);
     }
@@ -653,6 +818,7 @@ void DataStore::importCsv(const QString &path)
     Folder importFolder(QString("Imported-%1").arg(QDateTime::currentDateTimeUtc().toString("yyyy-MM-dd")));
     importFolder.entries = unique;
     m_data.rootFolder.subfolders.append(importFolder);
+    rebuildIndex();
     scheduleSaveData();
     emit dataChanged();
 
@@ -732,6 +898,7 @@ void DataStore::importSafariBookmarks(const QString &path)
         showAlert(tr("Created 'Imported-Safari' with %1 entries and %2 folders. %3 duplicates skipped.")
                       .arg(entriesAdded).arg(foldersAdded).arg(dupes));
     }
+    rebuildIndex();
     scheduleSaveData();
     emit dataChanged();
 #else
@@ -755,13 +922,22 @@ void DataStore::exportCsv(const QString &path)
         showAlert(tr("Export failed: %1").arg(file.errorString()));
         return;
     }
-    file.write(formatCsv().toUtf8());
+
+    QTextStream stream(&file);
+    std::function<void(const Folder &)> writeFolder = [&](const Folder &folder) {
+        for (const auto &e : folder.entries) {
+            stream << e.text << ',' << e.date.toString("yyyy-MM-dd") << '\n';
+        }
+        for (const auto &sub : folder.subfolders) writeFolder(sub);
+    };
+    writeFolder(m_data.rootFolder);
 }
 
 QVector<Entry> DataStore::parseCsv(const QString &csv) const
 {
     QVector<Entry> result;
     const QStringList lines = csv.split('\n');
+    result.reserve(lines.size());
     for (QString line : lines) {
         line = line.trimmed();
         if (line.isEmpty()) continue;
@@ -782,30 +958,11 @@ QVector<Entry> DataStore::parseCsv(const QString &csv) const
     return result;
 }
 
-QString DataStore::formatCsv() const
-{
-    QStringList lines;
-    std::function<void(const Folder &)> collect = [&](const Folder &folder) {
-        for (const auto &e : folder.entries) {
-            lines.append(QString("%1,%2").arg(e.text, e.date.toString("yyyy-MM-dd")));
-        }
-        for (const auto &sub : folder.subfolders) collect(sub);
-    };
-    collect(m_data.rootFolder);
-    return lines.join('\n');
-}
-
 Folder *DataStore::findFolder(const QUuid &folderId)
 {
-    if (folderId == s_rootFolderId || folderId.isNull()) return &m_data.rootFolder;
-    std::function<Folder*(Folder &)> findRecursively = [&](Folder &folder) -> Folder* {
-        if (folder.id == folderId) return &folder;
-        for (auto &sub : folder.subfolders) {
-            if (Folder *found = findRecursively(sub)) return found;
-        }
-        return nullptr;
-    };
-    return findRecursively(m_data.rootFolder);
+    if (folderId == Folder::rootFolderId() || folderId.isNull()) return &m_data.rootFolder;
+    auto it = m_folderIndex.find(folderId);
+    return it != m_folderIndex.end() ? it.value() : nullptr;
 }
 
 bool DataStore::modifyFolder(const QUuid &folderId, const std::function<void(Folder &)> &modifier)
@@ -935,6 +1092,7 @@ void DataStore::moveExistingContentToOriginalFolder()
     m_data.rootFolder.entries.clear();
     m_data.rootFolder.subfolders.clear();
     m_data.rootFolder.subfolders.append(original);
+    rebuildIndex();
 }
 
 void DataStore::applyFullSafariImport(const QVector<Folder> &bookmarkFolders, const Folder &readingList)
@@ -986,6 +1144,7 @@ void DataStore::applyFullSafariImport(const QVector<Folder> &bookmarkFolders, co
         m_data.rootFolder.subfolders.prepend(target);
     }
 
+    rebuildIndex();
     m_lastSyncDate = QDateTime::currentDateTimeUtc();
     scheduleSaveData();
     emit dataChanged();
@@ -1041,6 +1200,7 @@ void DataStore::applySafariSync(const QVector<Folder> &bookmarkFolders, const Fo
         m_data.rootFolder.subfolders.prepend(rl);
     }
 
+    rebuildIndex();
     m_lastSyncDate = QDateTime::currentDateTimeUtc();
     scheduleSaveData();
     emit dataChanged();
