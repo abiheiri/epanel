@@ -68,11 +68,11 @@ private:
 
     static const QString s_mimeType;
 
-    void clearNode(Node *node);
+    static void clearNode(Node *node);
     Node *nodeForIndex(const QModelIndex &index) const;
     QModelIndex indexForNode(Node *node) const;
-    void buildNode(Node *parentNode, const class Folder &folder);
+    static void buildNode(Node *parentNode, const class Folder &folder);
     void updateFolderNode(Node *parentNode, const class Folder &folder);
     Node *findNode(Node *node, const QUuid &id, ItemType type) const;
-    int folderEntryCount(Node *folderNode) const;
+    static int folderEntryCount(Node *folderNode);
 };

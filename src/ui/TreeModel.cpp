@@ -61,7 +61,7 @@ void TreeModel::updateFromData()
 void TreeModel::updateFolderNode(Node *parentNode, const Folder &folder)
 {
     struct DesiredChild {
-        enum Kind { FolderKind, EntryKind } kind;
+        enum Kind { FolderKind, EntryKind } kind = EntryKind;
         QUuid id;
         QString text;
         int entryCount = 0;
@@ -87,7 +87,7 @@ void TreeModel::updateFolderNode(Node *parentNode, const Folder &folder)
         // Find the best match among remaining current children.
         int matchIndex = -1;
         for (int i = row; i < parentNode->children.size(); ++i) {
-            Node *n = parentNode->children[i];
+            const Node *n = parentNode->children[i];
             if (n->type != wantType) continue;
             if (!want.id.isNull() && n->id == want.id) {
                 matchIndex = i;
@@ -96,7 +96,7 @@ void TreeModel::updateFolderNode(Node *parentNode, const Folder &folder)
         }
         if (matchIndex < 0) {
             for (int i = row; i < parentNode->children.size(); ++i) {
-                Node *n = parentNode->children[i];
+                const Node *n = parentNode->children[i];
                 if (n->type != wantType) continue;
                 const QString normalized = want.text.toLower().trimmed();
                 if (n->text.toLower().trimmed() == normalized) {
@@ -192,6 +192,7 @@ void TreeModel::buildNode(Node *parentNode, const Folder &folder)
     }
 }
 
+// cppcheck-suppress shadowFunction
 TreeModel::Node *TreeModel::nodeForIndex(const QModelIndex &index) const
 {
     if (!index.isValid()) return m_root;
@@ -206,6 +207,7 @@ QModelIndex TreeModel::indexForNode(Node *node) const
     return createIndex(row, 0, node);
 }
 
+// cppcheck-suppress shadowFunction
 QModelIndex TreeModel::index(int row, int column, const QModelIndex &parent) const
 {
     if (column != 0 || row < 0) return QModelIndex();
@@ -221,18 +223,21 @@ QModelIndex TreeModel::parent(const QModelIndex &child) const
     return indexForNode(node->parent);
 }
 
+// cppcheck-suppress shadowFunction
 int TreeModel::rowCount(const QModelIndex &parent) const
 {
     Node *parentNode = nodeForIndex(parent);
     return parentNode ? parentNode->children.size() : 0;
 }
 
+// cppcheck-suppress shadowFunction
 int TreeModel::columnCount(const QModelIndex &parent) const
 {
     Q_UNUSED(parent)
     return 1;
 }
 
+// cppcheck-suppress shadowFunction
 QVariant TreeModel::data(const QModelIndex &index, int role) const
 {
     Node *node = nodeForIndex(index);
@@ -276,6 +281,7 @@ QVariant TreeModel::data(const QModelIndex &index, int role) const
     }
 }
 
+// cppcheck-suppress shadowFunction
 bool TreeModel::setData(const QModelIndex &index, const QVariant &value, int role)
 {
     Node *node = nodeForIndex(index);
@@ -290,12 +296,13 @@ bool TreeModel::setData(const QModelIndex &index, const QVariant &value, int rol
     return true;
 }
 
+// cppcheck-suppress shadowFunction
 Qt::ItemFlags TreeModel::flags(const QModelIndex &index) const
 {
     if (!index.isValid()) return Qt::NoItemFlags;
 
     Qt::ItemFlags f = Qt::ItemIsEnabled | Qt::ItemIsSelectable | Qt::ItemIsDragEnabled | Qt::ItemIsDropEnabled;
-    Node *node = nodeForIndex(index);
+    const Node *node = nodeForIndex(index);
     if (node && node->type == FolderType) {
         f |= Qt::ItemIsEditable;
     }
@@ -348,6 +355,7 @@ Qt::DropActions TreeModel::supportedDropActions() const
     return Qt::MoveAction;
 }
 
+// cppcheck-suppress shadowFunction
 bool TreeModel::canDropMimeData(const QMimeData *data, Qt::DropAction action,
                                 int row, int column, const QModelIndex &parent) const
 {
@@ -368,14 +376,12 @@ bool TreeModel::canDropMimeData(const QMimeData *data, Qt::DropAction action,
     // Refuse dropping a folder onto itself or onto one of its descendants.
     const QByteArray encoded = data->data(s_mimeType);
     const QStringList items = QString::fromUtf8(encoded).split(',', Qt::SkipEmptyParts);
-    for (const QString &item : items) {
-        if (!item.startsWith(QStringLiteral("folder:"))) continue;
-        QUuid sourceId = QUuid::fromString(item.mid(7));
-        if (sourceId == targetFolderId) return false;
-        if (m_store && m_store->isDescendant(targetFolderId, sourceId)) return false;
-    }
-
-    return true;
+    return !std::any_of(items.begin(), items.end(), [&](const QString &item) {
+        if (!item.startsWith(QStringLiteral("folder:"))) return false;
+        const QUuid sourceId = QUuid::fromString(item.mid(7));
+        return sourceId == targetFolderId ||
+               (m_store && m_store->isDescendant(targetFolderId, sourceId));
+    });
 }
 
 bool TreeModel::dropMimeData(const QMimeData *data, Qt::DropAction action,
@@ -427,15 +433,15 @@ bool TreeModel::dropMimeData(const QMimeData *data, Qt::DropAction action,
     return true;
 }
 
-QUuid TreeModel::idForIndex(const QModelIndex &index) const
+QUuid TreeModel::idForIndex(const QModelIndex &index) const // cppcheck-suppress shadowFunction
 {
-    Node *node = nodeForIndex(index);
+    const Node *node = nodeForIndex(index);
     return node ? node->id : QUuid();
 }
 
-TreeModel::ItemType TreeModel::typeForIndex(const QModelIndex &index) const
+TreeModel::ItemType TreeModel::typeForIndex(const QModelIndex &index) const // cppcheck-suppress shadowFunction
 {
-    Node *node = nodeForIndex(index);
+    const Node *node = nodeForIndex(index);
     return node ? node->type : EntryType;
 }
 
@@ -456,7 +462,7 @@ TreeModel::Node *TreeModel::findNode(Node *node, const QUuid &id, ItemType type)
     return nullptr;
 }
 
-int TreeModel::folderEntryCount(Node *folderNode) const
+int TreeModel::folderEntryCount(Node *folderNode)
 {
     if (!folderNode || folderNode->type != FolderType) return 0;
     return folderNode->entryCount;

@@ -25,7 +25,7 @@ public:
 
     const EPanelData &data() const { return m_data; }
     const QString &notes() const { return m_notes; }
-    QString dataFolderPath() const;
+    const QString &dataFolderPath() const;
     QString jsonFilePath() const;
     QString notesFilePath() const;
     bool needsFileSelection() const { return m_needsFileSelection; }

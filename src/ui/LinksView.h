@@ -33,7 +33,7 @@ private:
     void openEntryText(const QString &text);
 
     struct SelectedItem {
-        TreeModel::ItemType type;
+        TreeModel::ItemType type = TreeModel::EntryType;
         QUuid id;
     };
     QVector<SelectedItem> collectSelectedItems() const;

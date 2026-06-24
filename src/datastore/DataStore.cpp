@@ -15,6 +15,7 @@
 #include <QDesktopServices>
 #include <QApplication>
 #include <QPushButton>
+#include <algorithm>
 
 #ifdef Q_OS_MACOS
 #include "platform/SafariSyncManager.h"
@@ -102,7 +103,7 @@ QUuid DataStore::rootFolderId()
     return s_rootFolderId;
 }
 
-QString DataStore::dataFolderPath() const
+const QString &DataStore::dataFolderPath() const
 {
     return m_dataFolderPath;
 }
@@ -119,10 +120,10 @@ QString DataStore::notesFilePath() const
     return QDir(m_dataFolderPath).filePath("notes.txt");
 }
 
-void DataStore::setNotes(const QString &notes)
+void DataStore::setNotes(const QString &newNotes)
 {
-    if (m_notes == notes) return;
-    m_notes = notes;
+    if (m_notes == newNotes) return;
+    m_notes = newNotes;
     emit notesChanged(m_notes);
     scheduleSaveNotes();
 }
@@ -131,9 +132,9 @@ void DataStore::promptForDataFile()
 {
     QMessageBox box(QMessageBox::Question, tr("Welcome to ePanel"),
                     tr("Select the folder that contains your ePanel data (epanel.json + notes.txt), or create a new one."));
-    QAbstractButton *openBtn = box.addButton(tr("Open Existing Folder…"), QMessageBox::AcceptRole);
-    QAbstractButton *createBtn = box.addButton(tr("Create New…"), QMessageBox::AcceptRole);
-    QAbstractButton *quitBtn = box.addButton(tr("Quit"), QMessageBox::RejectRole);
+    const QAbstractButton *openBtn = box.addButton(tr("Open Existing Folder…"), QMessageBox::AcceptRole);
+    const QAbstractButton *createBtn = box.addButton(tr("Create New…"), QMessageBox::AcceptRole);
+    box.addButton(tr("Quit"), QMessageBox::RejectRole);
     box.exec();
 
     if (box.clickedButton() == openBtn) {
@@ -458,10 +459,8 @@ bool DataStore::isDescendant(const QUuid &folderId, const QUuid &ancestorId) con
             ancestor = &folder;
             return true;
         }
-        for (const auto &sub : folder.subfolders) {
-            if (findAncestor(sub)) return true;
-        }
-        return false;
+        return std::any_of(folder.subfolders.begin(), folder.subfolders.end(),
+                           [&](const Folder &sub) { return findAncestor(sub); });
     };
     findAncestor(m_data.rootFolder);
     if (!ancestor) return false;
@@ -548,9 +547,9 @@ void DataStore::moveEntries(const QVector<QUuid> &entryIds, const QUuid &toFolde
 Entry *DataStore::findEntry(const QUuid &entryId)
 {
     std::function<Entry*(Folder &)> findRecursively = [&](Folder &folder) -> Entry* {
-        for (auto &entry : folder.entries) {
-            if (entry.id == entryId) return &entry;
-        }
+        auto it = std::find_if(folder.entries.begin(), folder.entries.end(),
+                               [&](const Entry &entry) { return entry.id == entryId; });
+        if (it != folder.entries.end()) return &(*it);
         for (auto &sub : folder.subfolders) {
             if (Entry *found = findRecursively(sub)) return found;
         }
@@ -562,20 +561,21 @@ Entry *DataStore::findEntry(const QUuid &entryId)
 QUuid DataStore::findParentFolderId(const QUuid &itemId) const
 {
     // If item is a folder, return its own id (so entries add to it)
-    std::function<QUuid(const Folder &)> findFolder = [&](const Folder &folder) -> QUuid {
+    std::function<QUuid(const Folder &)> findFolderId = [&](const Folder &folder) -> QUuid {
         if (folder.id == itemId) return folder.id;
         for (const auto &sub : folder.subfolders) {
-            QUuid found = findFolder(sub);
+            QUuid found = findFolderId(sub);
             if (!found.isNull()) return found;
         }
         return QUuid();
     };
-    QUuid folderFound = findFolder(m_data.rootFolder);
+    QUuid folderFound = findFolderId(m_data.rootFolder);
     if (!folderFound.isNull()) return folderFound;
 
     std::function<QUuid(const Folder &)> findEntryParent = [&](const Folder &folder) -> QUuid {
-        for (const auto &entry : folder.entries) {
-            if (entry.id == itemId) return folder.id;
+        if (std::any_of(folder.entries.begin(), folder.entries.end(),
+                        [&](const Entry &entry) { return entry.id == itemId; })) {
+            return folder.id;
         }
         for (const auto &sub : folder.subfolders) {
             QUuid found = findEntryParent(sub);
@@ -678,7 +678,7 @@ void DataStore::importSafariBookmarks(const QString &path)
     };
     collect(m_data.rootFolder);
 
-    auto mergeFolder = [&](const Folder &source, Folder &target, QSet<QString> &urls, int &entriesAdded, int &foldersAdded, int &dupes, auto &self) -> void {
+    auto mergeFolderImpl = [&](const Folder &source, Folder &target, QSet<QString> &urls, int &entriesAdded, int &foldersAdded, int &dupes, auto &self) -> void {
         for (const auto &entry : source.entries) {
             QString normalized = entry.text.toLower().trimmed();
             if (!urls.contains(normalized)) {
@@ -719,14 +719,14 @@ void DataStore::importSafariBookmarks(const QString &path)
     int entriesAdded = 0, foldersAdded = 0, dupes = 0;
     if (existingIndex >= 0) {
         for (const auto &sourceFolder : result->first) {
-            mergeFolder(sourceFolder, m_data.rootFolder.subfolders[existingIndex], existingURLs, entriesAdded, foldersAdded, dupes, mergeFolder);
+            mergeFolderImpl(sourceFolder, m_data.rootFolder.subfolders[existingIndex], existingURLs, entriesAdded, foldersAdded, dupes, mergeFolderImpl);
         }
         showAlert(tr("Merged into 'Imported-Safari': %1 new entries, %2 new folders. %3 duplicates skipped.")
                       .arg(entriesAdded).arg(foldersAdded).arg(dupes));
     } else {
         Folder newFolder("Imported-Safari");
         for (const auto &sourceFolder : result->first) {
-            mergeFolder(sourceFolder, newFolder, existingURLs, entriesAdded, foldersAdded, dupes, mergeFolder);
+            mergeFolderImpl(sourceFolder, newFolder, existingURLs, entriesAdded, foldersAdded, dupes, mergeFolderImpl);
         }
         m_data.rootFolder.subfolders.prepend(newFolder);
         showAlert(tr("Created 'Imported-Safari' with %1 entries and %2 folders. %3 duplicates skipped.")
@@ -820,7 +820,7 @@ void DataStore::deduplicate(Folder &folder)
 {
     QSet<QString> seen;
     QVector<Entry> unique;
-    for (auto &entry : folder.entries) {
+    for (const auto &entry : folder.entries) {
         QString normalized = entry.text.toLower().trimmed();
         if (!seen.contains(normalized)) {
             seen.insert(normalized);
@@ -842,17 +842,13 @@ bool DataStore::foldersEqual(const Folder &a, const Folder &b) const
     for (const auto &e : b.entries) bEntries.insert(e.text.toLower().trimmed());
     if (aEntries != bEntries) return false;
 
-    for (const auto &subA : a.subfolders) {
-        bool found = false;
-        for (const auto &subB : b.subfolders) {
-            if (subA.name.toLower() == subB.name.toLower() && foldersEqual(subA, subB)) {
-                found = true;
-                break;
-            }
-        }
-        if (!found) return false;
-    }
-    return true;
+    return std::all_of(a.subfolders.begin(), a.subfolders.end(),
+                       [&](const Folder &subA) {
+                           return std::any_of(b.subfolders.begin(), b.subfolders.end(),
+                                              [&](const Folder &subB) {
+                                                  return subA.name.toLower() == subB.name.toLower() && foldersEqual(subA, subB);
+                                              });
+                       });
 }
 
 bool DataStore::hasDataChanged(const EPanelData &remote) const
@@ -929,8 +925,9 @@ void DataStore::mergeFolder(Folder &local, const Folder &remote)
 void DataStore::moveExistingContentToOriginalFolder()
 {
     if (m_data.rootFolder.entries.isEmpty() && m_data.rootFolder.subfolders.isEmpty()) return;
-    for (const auto &sub : m_data.rootFolder.subfolders) {
-        if (sub.name == "my_original_epanel") return;
+    if (std::any_of(m_data.rootFolder.subfolders.begin(), m_data.rootFolder.subfolders.end(),
+                    [&](const Folder &sub) { return sub.name == QStringLiteral("my_original_epanel"); })) {
+        return;
     }
     Folder original("my_original_epanel");
     original.entries = m_data.rootFolder.entries;
@@ -949,7 +946,7 @@ void DataStore::applyFullSafariImport(const QVector<Folder> &bookmarkFolders, co
     };
     collect(m_data.rootFolder);
 
-    auto mergeFolder = [&](const Folder &source, Folder &target, QSet<QString> &urls, auto &self) -> void {
+    auto mergeFolderImpl = [&](const Folder &source, Folder &target, QSet<QString> &urls, auto &self) -> void {
         for (const auto &entry : source.entries) {
             QString normalized = entry.text.toLower().trimmed();
             if (!urls.contains(normalized)) {
@@ -977,7 +974,7 @@ void DataStore::applyFullSafariImport(const QVector<Folder> &bookmarkFolders, co
 
     for (const auto &sourceFolder : bookmarkFolders) {
         Folder target(sourceFolder.name);
-        mergeFolder(sourceFolder, target, existingURLs, mergeFolder);
+        mergeFolderImpl(sourceFolder, target, existingURLs, mergeFolderImpl);
         if (!target.entries.isEmpty() || !target.subfolders.isEmpty()) {
             m_data.rootFolder.subfolders.append(target);
         }
@@ -985,7 +982,7 @@ void DataStore::applyFullSafariImport(const QVector<Folder> &bookmarkFolders, co
 
     if (!readingList.entries.isEmpty() || !readingList.subfolders.isEmpty()) {
         Folder target("Reading List");
-        mergeFolder(const_cast<Folder &>(readingList), target, existingURLs, mergeFolder);
+        mergeFolderImpl(const_cast<Folder &>(readingList), target, existingURLs, mergeFolderImpl);
         m_data.rootFolder.subfolders.prepend(target);
     }
 

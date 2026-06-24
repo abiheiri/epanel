@@ -1,0 +1,3 @@
+# Qt QAbstractItemModel virtual overrides use parameter names (index, parent, data)
+# that shadow member function names. These are idiomatic and unavoidable.
+shadowFunction:src/ui/TreeModel.cpp
