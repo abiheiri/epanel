@@ -1,0 +1,125 @@
+name: Build epanel
+
+on:
+  push:
+    tags:
+      - '*'
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build for ${{ matrix.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # GitHub-hosted Windows runners are server images; windows-2019 and
+          # windows-latest are the closest available equivalents to Windows 10
+          # and Windows 11 client builds.
+          - name: windows-10
+            runner: windows-2019
+            os: windows
+            arch: win64_msvc2019_64
+            package: zip
+          - name: windows-11
+            runner: windows-latest
+            os: windows
+            arch: win64_msvc2022_64
+            package: zip
+          - name: ubuntu-latest
+            runner: ubuntu-latest
+            os: linux
+            arch: linux_gcc_64
+            package: tar.gz
+          - name: macos-arm64
+            runner: macos-14
+            os: mac
+            arch: clang_64
+            package: dmg
+
+    runs-on: ${{ matrix.runner }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.12.0'
+          host: ${{ matrix.os }}
+          target: desktop
+          arch: ${{ matrix.arch }}
+          dir: ${{ github.workspace }}/qt
+
+      - name: Configure and build (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          cmake -B build -S . \
+            -DCMAKE_PREFIX_PATH="${QT_ROOT_DIR}" \
+            -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --config Release
+
+      - name: Configure and build (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          cmake -B build -S . `
+            -DCMAKE_PREFIX_PATH="${env:QT_ROOT_DIR}" `
+            -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --config Release
+
+      - name: Package (Linux)
+        if: startsWith(matrix.runner, 'ubuntu-')
+        shell: bash
+        run: |
+          mkdir -p dist
+          cp build/epanel dist/
+          tar -czf epanel-${{ matrix.name }}.tar.gz -C dist .
+
+      - name: Package (macOS)
+        if: startsWith(matrix.runner, 'macos-')
+        shell: bash
+        run: |
+          macdeployqt build/epanel.app
+          hdiutil create -volname "epanel-${{ matrix.name }}" -srcfolder build/epanel.app -ov -format UDZO epanel-${{ matrix.name }}.dmg
+
+      - name: Package (Windows)
+        if: startsWith(matrix.runner, 'windows-')
+        shell: pwsh
+        run: |
+          $dist = "dist"
+          New-Item -ItemType Directory -Force -Path $dist | Out-Null
+          Copy-Item "build\Release\epanel.exe" $dist\
+          windeployqt "$dist\epanel.exe"
+          Compress-Archive -Path "$dist\*" -DestinationPath "epanel-${{ matrix.name }}.zip"
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: epanel-${{ matrix.name }}
+          path: epanel-${{ matrix.name }}.*
+
+  release:
+    name: Create Release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          pattern: epanel-*
+          merge-multiple: false
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artifacts/**/*.zip
+            artifacts/**/*.tar.gz
+            artifacts/**/*.dmg
+          fail_on_unmatched_files: true

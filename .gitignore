@@ -1,0 +1,29 @@
+# Build directories
+build/
+cmake-build-*/
+
+# Local Qt installation
+.qt/
+
+# Python virtual environment
+.venv/
+
+# IDE
+.idea/
+.vscode/
+*.user
+*.user.*
+
+# macOS
+.DS_Store
+
+# Test data
+testdata/
+
+# Installer logs
+aqtinstall.log
+
+# Generated IDE databases
+compile_commands.json
+.cache/
+
