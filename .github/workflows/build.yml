@@ -16,14 +16,15 @@ jobs:
           # Qt 6.12.0 for Windows desktop only provides MSVC 2022 binaries
           # (win64_msvc2022_64, win64_msvc2022_arm64_cross_compiled, win64_mingw,
           # win64_llvm_mingw). Use the windows-2022 runner so the MSVC 2022
-          # toolchain is available. The resulting binary still runs on Windows 10.
+          # toolchain is available. The resulting binaries still run on Windows 10
+          # and Windows 11.
           - name: windows-10
             runner: windows-2022
             os: windows
             arch: win64_msvc2022_64
             package: zip
           - name: windows-11
-            runner: windows-latest
+            runner: windows-2022
             os: windows
             arch: win64_msvc2022_64
             package: zip
@@ -52,6 +53,9 @@ jobs:
           target: desktop
           arch: ${{ matrix.arch }}
           dir: ${{ github.workspace }}/qt
+          # aqtinstall <3.4 doesn't understand Qt 6.11+'s new Windows repository
+          # layout (per-arch Updates.xml). Use upstream master until released.
+          aqtsource: 'git+https://github.com/miurahr/aqtinstall.git'
 
       - name: Set up MSVC dev environment
         if: runner.os == 'Windows'
@@ -63,7 +67,9 @@ jobs:
         if: startsWith(matrix.runner, 'ubuntu-')
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential libgl1-mesa-dev libxkbcommon-x11-dev
+          sudo apt-get install -y build-essential libgl1-mesa-dev libxkbcommon-x11-dev \
+            libwayland-dev libwayland-bin libwayland-cursor0 libwayland-egl1 \
+            libxkbcommon-dev libegl1-mesa-dev
 
       - name: Configure and build (Unix)
         if: runner.os != 'Windows'
