@@ -117,8 +117,8 @@ void LinksView::onAddEntry()
 
     AddEntryDialog dialog(m_store, text, this);
     if (dialog.exec() == QDialog::Accepted) {
-        m_store->addEntry(Entry(text), dialog.selectedFolderId());
         m_searchEdit->clear();
+        m_store->addEntry(Entry(text), dialog.selectedFolderId());
     }
 }
 
@@ -128,6 +128,7 @@ void LinksView::onNewFolder()
     if (dialog.exec() == QDialog::Accepted) {
         QString name = dialog.folderName();
         if (!name.isEmpty()) {
+            m_searchEdit->clear();
             m_store->createFolder(name, dialog.parentFolderId());
         }
     }

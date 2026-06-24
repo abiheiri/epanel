@@ -27,3 +27,6 @@ aqtinstall.log
 compile_commands.json
 .cache/
 
+# Temporary files
+findings.md
+
