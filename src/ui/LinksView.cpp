@@ -47,11 +47,12 @@ LinksView::LinksView(DataStore *store, QWidget *parent)
 void LinksView::buildUi()
 {
     QVBoxLayout *layout = new QVBoxLayout(this);
-    layout->setContentsMargins(8, 8, 8, 8);
-    layout->setSpacing(6);
+    layout->setContentsMargins(4, 6, 4, 6);
+    layout->setSpacing(4);
 
     // Toolbar
     QHBoxLayout *toolbar = new QHBoxLayout();
+    toolbar->setSpacing(4);
     m_searchEdit = new QLineEdit(this);
     m_searchEdit->setPlaceholderText(tr("Search links and folders…"));
     m_searchEdit->setClearButtonEnabled(true);
@@ -90,11 +91,12 @@ void LinksView::buildUi()
     m_tree->setDefaultDropAction(Qt::MoveAction);
     m_tree->setEditTriggers(QAbstractItemView::EditKeyPressed);
     m_tree->setHeaderHidden(true);
+    m_tree->setIndentation(16);
 
     layout->addWidget(m_tree, 1);
 
     // Signals
-    connect(m_searchEdit, &QLineEdit::textChanged, m_filter, &QSortFilterProxyModel::setFilterFixedString);
+    connect(m_searchEdit, &QLineEdit::textChanged, this, &LinksView::onSearchTextChanged);
     connect(m_searchEdit, &QLineEdit::returnPressed, this, &LinksView::onAddEntry);
     connect(addButton, &QPushButton::clicked, this, &LinksView::onAddEntry);
     connect(newFolderButton, &QPushButton::clicked, this, &LinksView::onNewFolder);
@@ -292,6 +294,26 @@ void LinksView::onMoveItems()
     }
 }
 
+void LinksView::onSearchTextChanged(const QString &text)
+{
+    const bool hasSearch = !text.trimmed().isEmpty();
+
+    if (hasSearch && !m_searchActive) {
+        m_preSearchExpanded = collectExpandedFolderIds();
+        m_searchActive = true;
+    }
+
+    m_filter->setFilterFixedString(text);
+
+    if (hasSearch) {
+        m_tree->expandAll();
+    } else if (m_searchActive) {
+        m_searchActive = false;
+        restoreExpandedFolders(m_preSearchExpanded);
+        m_preSearchExpanded.clear();
+    }
+}
+
 void LinksView::onDataChanged()
 {
     QVector<SelectedItem> selected = collectSelectedItems();
@@ -299,7 +321,11 @@ void LinksView::onDataChanged()
 
     m_model->updateFromData();
 
-    restoreExpandedFolders(expanded);
+    if (m_searchActive) {
+        m_tree->expandAll();
+    } else {
+        restoreExpandedFolders(expanded);
+    }
     restoreSelection(selected);
 }
 

@@ -4,7 +4,12 @@
 #include "SettingsView.h"
 #include "datastore/DataStore.h"
 
-#include <QTabWidget>
+#include <QStackedWidget>
+#include <QPushButton>
+#include <QButtonGroup>
+#include <QVBoxLayout>
+#include <QHBoxLayout>
+#include <QWidget>
 #include <QMenuBar>
 #include <QMenu>
 #include <QAction>
@@ -27,11 +32,7 @@ MainWindow::MainWindow(DataStore *store, QWidget *parent)
     setWindowTitle(tr("ePanel"));
     setMinimumSize(600, 450);
 
-    m_tabs = new QTabWidget(this);
-    m_tabs->addTab(new LinksView(m_store, this), tr("Links"));
-    m_tabs->addTab(new NotesView(m_store, this), tr("Notes"));
-    m_tabs->addTab(new SettingsView(m_store, this), tr("Settings"));
-    setCentralWidget(m_tabs);
+    setupCentralWidget();
 
     m_net = new QNetworkAccessManager(this);
 
@@ -41,6 +42,85 @@ MainWindow::MainWindow(DataStore *store, QWidget *parent)
             this, [](const QString &message) {
                 QMessageBox::information(nullptr, QCoreApplication::applicationName(), message);
             });
+}
+
+void MainWindow::setupCentralWidget()
+{
+    QWidget *central = new QWidget(this);
+    QVBoxLayout *mainLayout = new QVBoxLayout(central);
+    mainLayout->setContentsMargins(0, 4, 0, 0);
+    mainLayout->setSpacing(0);
+
+    // Navigation row
+    QWidget *navWidget = new QWidget(central);
+    QHBoxLayout *navLayout = new QHBoxLayout(navWidget);
+    navLayout->setContentsMargins(0, 0, 0, 4);
+    navLayout->setSpacing(2);
+    navLayout->addStretch();
+
+    m_navGroup = new QButtonGroup(this);
+    m_navGroup->setExclusive(true);
+
+    const QStringList labels = { tr("Links"), tr("Notes"), tr("Settings") };
+    for (int i = 0; i < labels.size(); ++i) {
+        QPushButton *btn = new QPushButton(labels.at(i), navWidget);
+        btn->setCheckable(true);
+        btn->setFlat(true);
+        btn->setCursor(Qt::PointingHandCursor);
+        btn->setStyleSheet(QStringLiteral(
+            "QPushButton {"
+            "  border: none;"
+            "  border-bottom: 2px solid transparent;"
+            "  background: transparent;"
+            "  color: #858585;"
+            "  padding: 4px 8px;"
+            "  font-size: 13px;"
+            "}"
+            "QPushButton:hover:!checked {"
+            "  color: #cccccc;"
+            "}"
+            "QPushButton:checked {"
+            "  color: #ffffff;"
+            "  border-bottom-color: #0a84ff;"
+            "}"
+        ));
+        m_navGroup->addButton(btn, i);
+        navLayout->addWidget(btn);
+    }
+    navLayout->addStretch();
+
+    // Stacked content
+    m_stack = new QStackedWidget(central);
+    m_stack->addWidget(new LinksView(m_store, m_stack));
+    m_stack->addWidget(new NotesView(m_store, m_stack));
+    m_stack->addWidget(new SettingsView(m_store, m_stack));
+
+    connect(m_navGroup, QOverload<int>::of(&QButtonGroup::idClicked),
+            this, &MainWindow::onNavClicked);
+
+    mainLayout->addWidget(navWidget);
+    mainLayout->addWidget(m_stack, 1);
+
+    setCentralWidget(central);
+
+    // Default to Links
+    setActiveNav(0);
+}
+
+void MainWindow::onNavClicked(int index)
+{
+    setActiveNav(index);
+}
+
+void MainWindow::setActiveNav(int index)
+{
+    if (index < 0 || index >= m_stack->count()) return;
+
+    QAbstractButton *btn = m_navGroup->button(index);
+    if (btn && !btn->isChecked()) {
+        btn->setChecked(true);
+    }
+    m_stack->setCurrentIndex(index);
 }
 
 void MainWindow::setupMenu()

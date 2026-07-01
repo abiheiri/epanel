@@ -27,6 +27,7 @@ private slots:
     void onDeleteKey();
     void onDataChanged();
     void onMoveItems();
+    void onSearchTextChanged(const QString &text);
 
 private:
     void buildUi();
@@ -50,4 +51,7 @@ private:
     QLineEdit *m_searchEdit = nullptr;
     TreeModel *m_model = nullptr;
     QSortFilterProxyModel *m_filter = nullptr;
+
+    bool m_searchActive = false;
+    QSet<QUuid> m_preSearchExpanded;
 };
