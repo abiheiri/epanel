@@ -10,7 +10,6 @@ cmake-build-*/
 
 # IDE
 .idea/
-.vscode/
 *.user
 *.user.*
 

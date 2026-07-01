@@ -1,0 +1,18 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Debug epanel",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/epanel.app/Contents/MacOS/epanel",
+            "args": [],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [],
+            "externalConsole": false,
+            "MIMode": "lldb",
+            "preLaunchTask": "Build epanel"
+        }
+    ]
+}

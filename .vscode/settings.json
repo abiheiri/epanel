@@ -1,0 +1,24 @@
+{
+    // Use the CMake preset that matches your Qt installation.
+    // Change this to "macos-homebrew", "linux", or "windows" if needed.
+    "cmake.configurePreset": "macos-local-qt",
+    "cmake.buildPreset": "macos-local-qt",
+
+    // CMake and Ninja live in the project venv, not the system PATH.
+    "cmake.cmakePath": "${workspaceFolder}/.venv/bin/cmake",
+    "cmake.configureEnvironment": {
+        "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}"
+    },
+
+    // Copy compile_commands.json to the workspace root so IntelliSense
+    // (Microsoft C/C++ or clangd) can find Qt headers automatically.
+    "cmake.copyCompileCommands": "${workspaceFolder}/compile_commands.json",
+
+    // Optional: ensure the C/C++ extension uses the same compile commands.
+    "C_Cpp.default.compileCommands": "${workspaceFolder}/compile_commands.json",
+
+    // Optional: if you use clangd instead of the Microsoft extension.
+    "clangd.arguments": [
+        "--compile-commands-dir=${workspaceFolder}"
+    ]
+}
