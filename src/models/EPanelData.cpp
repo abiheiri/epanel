@@ -48,7 +48,7 @@ bool EPanelData::loadFromFile(const QString &path, QString *error)
         if (error) *error = parseError.errorString();
         return false;
     }
-    *this = fromJsonDocument(doc);
+    *this = std::move(fromJsonDocument(doc));
     return true;
 }
 
