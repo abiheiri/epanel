@@ -101,22 +101,29 @@ void SettingsView::updateLabels()
 {
     QString jsonPath = m_store->jsonFilePath();
     if (jsonPath.isEmpty()) {
-        m_dataFileLabel->setText(tr("No file selected"));
+        if (m_dataFileLabel->text() != tr("No file selected"))
+            m_dataFileLabel->setText(tr("No file selected"));
     } else {
-        m_dataFileLabel->setText(jsonPath);
+        if (m_dataFileLabel->text() != jsonPath)
+            m_dataFileLabel->setText(jsonPath);
     }
 
     QString notesPath = m_store->notesFilePath();
     if (notesPath.isEmpty()) {
-        m_notesFileLabel->setText(tr("No file selected"));
+        if (m_notesFileLabel->text() != tr("No file selected"))
+            m_notesFileLabel->setText(tr("No file selected"));
     } else {
-        m_notesFileLabel->setText(notesPath);
+        if (m_notesFileLabel->text() != notesPath)
+            m_notesFileLabel->setText(notesPath);
     }
 
     if (m_store->lastSyncDate().isValid()) {
-        m_lastSyncLabel->setText(tr("Last synced: %1").arg(m_store->lastSyncDate().toLocalTime().toString()));
+        QString text = tr("Last synced: %1").arg(m_store->lastSyncDate().toLocalTime().toString());
+        if (m_lastSyncLabel->text() != text)
+            m_lastSyncLabel->setText(text);
     } else {
-        m_lastSyncLabel->clear();
+        if (!m_lastSyncLabel->text().isEmpty())
+            m_lastSyncLabel->clear();
     }
 
 #ifdef Q_OS_MACOS
