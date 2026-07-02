@@ -104,7 +104,7 @@ jobs:
         shell: bash
         run: |
           macdeployqt build/epanel.app
-          hdiutil create -volname "epanel-${{ matrix.name }}" -srcfolder build/epanel.app -ov -format UDZO epanel-${{ matrix.name }}.dmg
+          ./scripts/create-dmg.sh "${{ github.ref_name }}" "build/epanel.app" "epanel-${{ matrix.name }}.dmg"
 
       - name: Package (Windows)
         if: startsWith(matrix.runner, 'windows-')
