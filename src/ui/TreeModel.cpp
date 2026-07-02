@@ -83,16 +83,15 @@ void TreeModel::updateFolderById(const QUuid &folderId)
 
     // Find the Folder in the data tree matching this node.
     const Folder *folder = &m_store->data().rootFolder;
-    std::function<const Folder *(const Folder &, const QUuid &)> findFolder;
-    findFolder = [&](const Folder &f, const QUuid &id) -> const Folder * {
+    auto findFolder = [&](auto &self, const Folder &f, const QUuid &id) -> const Folder * {
         if (f.id == id) return &f;
         for (const auto &sub : f.subfolders) {
-            const Folder *found = findFolder(sub, id);
+            const Folder *found = self(self, sub, id);
             if (found) return found;
         }
         return nullptr;
     };
-    folder = findFolder(*folder, folderId);
+    folder = findFolder(findFolder, *folder, folderId);
     if (!folder) return;
 
     updateFolderNode(node, *folder);

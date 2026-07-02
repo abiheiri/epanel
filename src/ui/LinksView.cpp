@@ -458,18 +458,16 @@ QSet<QUuid> LinksView::descendantFolderIds(const QUuid &folderId) const
     QSet<QUuid> result;
     if (!m_store) return result;
 
-    std::function<void(const Folder &)> walk = [&](const Folder &folder) {
+    auto walk = [&](auto &self, const Folder &folder) -> void {
         for (const Folder &sub : folder.subfolders) {
             if (m_store->isDescendant(sub.id, folderId)) {
                 result.insert(sub.id);
-                walk(sub);
-            } else {
-                walk(sub);
             }
+            self(self, sub);
         }
     };
 
-    walk(m_store->data().rootFolder);
+    walk(walk, m_store->data().rootFolder);
     return result;
 }
 

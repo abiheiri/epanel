@@ -274,13 +274,13 @@ void DataStore::unindexEntry(const QUuid &entryId)
 void DataStore::rebuildTextIndex()
 {
     m_normalizedTexts.clear();
-    std::function<void(const Folder &)> collect = [&](const Folder &folder) {
+    auto collect = [&](auto &self, const Folder &folder) -> void {
         for (const auto &e : folder.entries)
             m_normalizedTexts.insert(e.text.toLower().trimmed());
         for (const auto &sub : folder.subfolders)
-            collect(sub);
+            self(self, sub);
     };
-    collect(m_data.rootFolder);
+    collect(collect, m_data.rootFolder);
 }
 
 void DataStore::recomputeAllEntryCounts(Folder &folder)
@@ -870,11 +870,11 @@ void DataStore::importCsv(const QString &path)
     }
 
     QSet<QString> existingTexts;
-    std::function<void(const Folder &)> collect = [&](const Folder &folder) {
+    auto collect = [&](auto &self, const Folder &folder) -> void {
         for (const auto &e : folder.entries) existingTexts.insert(e.text);
-        for (const auto &sub : folder.subfolders) collect(sub);
+        for (const auto &sub : folder.subfolders) self(self, sub);
     };
-    collect(m_data.rootFolder);
+    collect(collect, m_data.rootFolder);
 
     QVector<Entry> unique;
     unique.reserve(imported.size());
@@ -991,22 +991,20 @@ void DataStore::exportCsv(const QString &path)
     }
 
     QTextStream stream(&file);
-    std::function<void(const Folder &)> writeFolder = [&](const Folder &folder) {
+    auto writeFolder = [&](auto &self, const Folder &folder) -> void {
         for (const auto &e : folder.entries) {
             stream << e.text << ',' << e.date.toString("yyyy-MM-dd") << '\n';
         }
-        for (const auto &sub : folder.subfolders) writeFolder(sub);
+        for (const auto &sub : folder.subfolders) self(self, sub);
     };
-    writeFolder(m_data.rootFolder);
+    writeFolder(writeFolder, m_data.rootFolder);
 }
 
 QVector<Entry> DataStore::parseCsv(const QString &csv) const
 {
     QVector<Entry> result;
-    const QStringList lines = csv.split('\n');
-    result.reserve(lines.size());
-    for (const QString &line : lines) {
-        const QString trimmed = line.trimmed();
+    for (const auto line : QStringTokenizer{csv, u'\n'}) {
+        QString trimmed = line.trimmed().toString();
         if (trimmed.isEmpty()) continue;
         QStringList parts = trimmed.split(',');
         if (parts.size() < 2) continue;
@@ -1235,17 +1233,17 @@ void DataStore::applySafariSync(const QVector<Folder> &bookmarkFolders, const Fo
 
     // Capture collapsed state
     QHash<QString, bool> collapsedState;
-    std::function<void(const Folder &)> capture = [&](const Folder &folder) {
+    auto capture = [&](auto &self, const Folder &folder) -> void {
         collapsedState[folder.id.toString(QUuid::WithoutBraces)] = folder.isCollapsed;
-        for (const auto &sub : folder.subfolders) capture(sub);
+        for (const auto &sub : folder.subfolders) self(self, sub);
     };
-    for (const auto &sub : m_data.rootFolder.subfolders) capture(sub);
+    for (const auto &sub : m_data.rootFolder.subfolders) capture(capture, sub);
 
-    std::function<void(Folder &)> restore = [&](Folder &folder) {
+    auto restore = [&](auto &self, Folder &folder) -> void {
         if (collapsedState.contains(folder.id.toString(QUuid::WithoutBraces))) {
             folder.isCollapsed = collapsedState[folder.id.toString(QUuid::WithoutBraces)];
         }
-        for (auto &sub : folder.subfolders) restore(sub);
+        for (auto &sub : folder.subfolders) self(self, sub);
     };
 
     for (const auto &safariFolder : bookmarkFolders) {
@@ -1253,14 +1251,14 @@ void DataStore::applySafariSync(const QVector<Folder> &bookmarkFolders, const Fo
         for (int i = 0; i < m_data.rootFolder.subfolders.size(); ++i) {
             if (m_data.rootFolder.subfolders[i].name == safariFolder.name) {
                 m_data.rootFolder.subfolders[i] = safariFolder;
-                restore(m_data.rootFolder.subfolders[i]);
+                restore(restore, m_data.rootFolder.subfolders[i]);
                 found = true;
                 break;
             }
         }
         if (!found && (!safariFolder.entries.isEmpty() || !safariFolder.subfolders.isEmpty())) {
             m_data.rootFolder.subfolders.append(safariFolder);
-            restore(m_data.rootFolder.subfolders.last());
+            restore(restore, m_data.rootFolder.subfolders.last());
         }
     }
 
@@ -1269,7 +1267,7 @@ void DataStore::applySafariSync(const QVector<Folder> &bookmarkFolders, const Fo
         if (m_data.rootFolder.subfolders[i].name == "Reading List") {
             m_data.rootFolder.subfolders[i] = readingList;
             m_data.rootFolder.subfolders[i].name = "Reading List";
-            restore(m_data.rootFolder.subfolders[i]);
+            restore(restore, m_data.rootFolder.subfolders[i]);
             readingListFound = true;
             break;
         }
@@ -1277,7 +1275,7 @@ void DataStore::applySafariSync(const QVector<Folder> &bookmarkFolders, const Fo
     if (!readingListFound && !readingList.entries.isEmpty()) {
         m_data.rootFolder.subfolders.prepend(readingList);
         m_data.rootFolder.subfolders.first().name = "Reading List";
-        restore(m_data.rootFolder.subfolders.first());
+        restore(restore, m_data.rootFolder.subfolders.first());
     }
 
     rebuildIndex();
