@@ -25,6 +25,7 @@ public:
 
     void rebuild();
     void updateFromData();
+    void updateFolderById(const QUuid &folderId);
 
     // QAbstractItemModel
     QModelIndex index(int row, int column, const QModelIndex &parent = QModelIndex()) const override;

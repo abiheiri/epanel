@@ -74,6 +74,7 @@ public:
 
 signals:
     void dataChanged();
+    void folderDataChanged(const QUuid &folderId);
     void notesChanged(const QString &notes);
     void alertRequested(const QString &message);
     void dataFileChanged();

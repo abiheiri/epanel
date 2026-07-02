@@ -27,6 +27,7 @@ private slots:
     void onCustomContextMenu(const QPoint &pos);
     void onDeleteKey();
     void onDataChanged();
+    void onFolderDataChanged(const QUuid &folderId);
     void onMoveItems();
     void onSearchTextChanged(const QString &text);
     void applySearchFilter();

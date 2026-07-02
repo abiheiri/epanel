@@ -491,7 +491,7 @@ void DataStore::createFolder(const QString &name, const QUuid &parentId)
         }
     }
     scheduleSaveData();
-    emit dataChanged();
+    emit folderDataChanged(parentId);
 }
 
 void DataStore::renameFolder(const QUuid &folderId, const QString &newName)
@@ -499,7 +499,7 @@ void DataStore::renameFolder(const QUuid &folderId, const QString &newName)
     if (folderId == Folder::rootFolderId()) return;
     if (modifyFolder(folderId, [&](Folder &folder) { folder.name = newName; })) {
         scheduleSaveData();
-        emit dataChanged();
+        emit folderDataChanged(folderId);
     }
 }
 
@@ -527,7 +527,7 @@ void DataStore::deleteFolder(const QUuid &folderId)
             parent->subfolders.removeAt(i);
             adjustEntryCounts(parentId, -removedCount);
             scheduleSaveData();
-            emit dataChanged();
+            emit folderDataChanged(parentId);
             return;
         }
     }
@@ -538,7 +538,7 @@ void DataStore::toggleFolderCollapsed(const QUuid &folderId)
     if (folderId == Folder::rootFolderId()) return;
     if (modifyFolder(folderId, [&](Folder &folder) { folder.isCollapsed = !folder.isCollapsed; })) {
         scheduleSaveData();
-        emit dataChanged();
+        emit folderDataChanged(folderId);
     }
 }
 
@@ -587,7 +587,8 @@ void DataStore::moveFolder(const QUuid &folderId, const QUuid &toParentId)
     adjustEntryCounts(toParentId, count);
 
     scheduleSaveData();
-    emit dataChanged();
+    emit folderDataChanged(currentParent);
+    emit folderDataChanged(toParentId);
 }
 
 bool DataStore::isDescendant(const QUuid &folderId, const QUuid &ancestorId) const
@@ -615,7 +616,7 @@ void DataStore::addEntry(const Entry &entry, const QUuid &folderId)
     }
     adjustEntryCounts(folderId, 1);
     scheduleSaveData();
-    emit dataChanged();
+    emit folderDataChanged(folderId);
 }
 
 void DataStore::deleteEntry(const QUuid &entryId)
@@ -632,7 +633,7 @@ void DataStore::deleteEntry(const QUuid &entryId)
             m_entryParentIndex.remove(entryId);
             adjustEntryCounts(parentIt.value(), -1);
             scheduleSaveData();
-            emit dataChanged();
+            emit folderDataChanged(parentIt.value());
             return;
         }
     }
@@ -675,8 +676,10 @@ void DataStore::deleteEntries(const QSet<QUuid> &ids)
     }
 
     if (changed) {
+        for (auto it = entriesByFolder.begin(); it != entriesByFolder.end(); ++it) {
+            emit folderDataChanged(it.key());
+        }
         scheduleSaveData();
-        emit dataChanged();
     }
 }
 
@@ -717,7 +720,8 @@ void DataStore::moveEntry(const QUuid &entryId, const QUuid &toFolderId)
     adjustEntryCounts(toFolderId, 1);
 
     scheduleSaveData();
-    emit dataChanged();
+    emit folderDataChanged(parentIt.value());
+    emit folderDataChanged(toFolderId);
 }
 
 void DataStore::moveEntries(const QVector<QUuid> &entryIds, const QUuid &toFolderId)
@@ -766,7 +770,10 @@ void DataStore::moveEntries(const QVector<QUuid> &entryIds, const QUuid &toFolde
     if (changed) {
         adjustEntryCounts(toFolderId, entryIds.size());
         scheduleSaveData();
-        emit dataChanged();
+        for (auto it = idsBySourceFolder.begin(); it != idsBySourceFolder.end(); ++it) {
+            emit folderDataChanged(it.key());
+        }
+        emit folderDataChanged(toFolderId);
     }
 }
 

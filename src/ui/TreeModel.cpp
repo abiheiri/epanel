@@ -5,6 +5,7 @@
 #include <QMimeData>
 #include <QIcon>
 #include <QUrl>
+#include <functional>
 
 const QString TreeModel::s_mimeType = QStringLiteral("application/x-epanel-items");
 
@@ -63,6 +64,35 @@ void TreeModel::updateFromData()
 {
     if (!m_store || !m_root) return;
     updateFolderNode(m_root, m_store->data().rootFolder);
+}
+
+void TreeModel::updateFolderById(const QUuid &folderId)
+{
+    if (!m_store) return;
+
+    if (folderId == DataStore::rootFolderId() || folderId.isNull()) {
+        updateFromData();
+        return;
+    }
+
+    Node *node = findNode(m_root, folderId, FolderType);
+    if (!node) return;
+
+    // Find the Folder in the data tree matching this node.
+    const Folder *folder = &m_store->data().rootFolder;
+    std::function<const Folder *(const Folder &, const QUuid &)> findFolder;
+    findFolder = [&](const Folder &f, const QUuid &id) -> const Folder * {
+        if (f.id == id) return &f;
+        for (const auto &sub : f.subfolders) {
+            const Folder *found = findFolder(sub, id);
+            if (found) return found;
+        }
+        return nullptr;
+    };
+    folder = findFolder(*folder, folderId);
+    if (!folder) return;
+
+    updateFolderNode(node, *folder);
 }
 
 void TreeModel::updateFolderNode(Node *parentNode, const Folder &folder)

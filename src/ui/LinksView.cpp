@@ -43,6 +43,7 @@ LinksView::LinksView(DataStore *store, QWidget *parent)
     m_model->rebuild();
 
     connect(m_store, &DataStore::dataChanged, this, &LinksView::onDataChanged);
+    connect(m_store, &DataStore::folderDataChanged, this, &LinksView::onFolderDataChanged);
 }
 
 void LinksView::buildUi()
@@ -333,6 +334,21 @@ void LinksView::onDataChanged()
     QSet<QUuid> expanded = collectExpandedFolderIds();
 
     m_model->updateFromData();
+
+    if (m_searchActive) {
+        m_tree->expandAll();
+    } else {
+        restoreExpandedFolders(expanded);
+    }
+    restoreSelection(selected);
+}
+
+void LinksView::onFolderDataChanged(const QUuid &folderId)
+{
+    QVector<SelectedItem> selected = collectSelectedItems();
+    QSet<QUuid> expanded = collectExpandedFolderIds();
+
+    m_model->updateFolderById(folderId);
 
     if (m_searchActive) {
         m_tree->expandAll();
