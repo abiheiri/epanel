@@ -45,11 +45,12 @@ The codebase already does several things well: `DataStore` keeps hash indexes fo
 - **Fix:** ~~Stop storing `text` in `Node` — resolve it from the `DataStore` via `id` lookup. Reduce `Node` to just `id`, `type`, `parent`, and `children`.~~
   Removed `QString text` from Node struct. Added `nodeText()` helper that resolves text via `DataStore::findFolder()`/`findEntry()` O(1) lookups. Made `findFolder()` public. Updated `data()`, `setData()`, `updateFromData()` diff algorithm to use `nodeText()`.
 
-### 6. SHA-256 hash computed on every save
+### 6. SHA-256 hash computed on every save ✅ **DONE** `02d92d4`
 - **Where:** `src/datastore/DataStore.cpp:298-300`
 - **Issue:** `QCryptographicHash::hash(jsonBytes, QCryptographicHash::Sha256)` hashes the entire JSON blob on every save. SHA-256 is cryptographic-grade and overkill for detecting own-write-vs-external-change.
 - **Impact:** CPU on every save.
-- **Fix:** Use a lighter non-cryptographic hash (e.g., `qHash` or CRC32), or rely solely on the mtime+size pre-check and compare byte-for-byte.
+- **Fix:** ~~Use a lighter non-cryptographic hash (e.g., `qHash` or CRC32), or rely solely on the mtime+size pre-check and compare byte-for-byte.~~
+  Replaced `QCryptographicHash::Sha256` with `qHash(QByteArrayView(...))`. Changed `m_lastWrittenDataHash` from `QByteArray` to `size_t`. Removed `#include <QCryptographicHash>`.
 
 ### 7. Full deep copy in `EPanelData::loadFromFile()` ✅ **DONE** `41ec094`
 - **Where:** `src/models/EPanelData.cpp:57`
