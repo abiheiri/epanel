@@ -38,11 +38,12 @@ The codebase already does several things well: `DataStore` keeps hash indexes fo
 - **Fix:** ~~Use targeted `beginInsertRows`/`beginRemoveRows` for simple operations (add/delete/move/rename), reserving the full diff only for external file changes.~~
   Added `folderDataChanged(const QUuid &folderId)` signal to DataStore. All per-folder mutation methods now emit this instead of `dataChanged()`. `TreeModel::updateFolderById()` performs a targeted subtree update via `updateFolderNode()` on just the affected folder. `LinksView::onFolderDataChanged()` saves/restores selection and expansion around the targeted update. Bulk operations (import/merge/external change) still use the full `dataChanged()` → `updateFromData()` path.
 
-### 5. Shadow `Node` tree in `TreeModel` doubles memory
+### 5. Shadow `Node` tree in `TreeModel` doubles memory ✅ **DONE** `078532a`
 - **Where:** `src/ui/TreeModel.h:76` (`Node` struct), `buildNode()` in `TreeModel.cpp`
 - **Issue:** The model stores a full parallel tree of `Node` structs containing `text` — data already present in the `Folder`/`Entry` objects. For large datasets, this doubles memory usage.
 - **Impact:** Memory.
-- **Fix:** Stop storing `text` in `Node` — resolve it from the `DataStore` via `id` lookup. Reduce `Node` to just `id`, `type`, `parent`, and `children`.
+- **Fix:** ~~Stop storing `text` in `Node` — resolve it from the `DataStore` via `id` lookup. Reduce `Node` to just `id`, `type`, `parent`, and `children`.~~
+  Removed `QString text` from Node struct. Added `nodeText()` helper that resolves text via `DataStore::findFolder()`/`findEntry()` O(1) lookups. Made `findFolder()` public. Updated `data()`, `setData()`, `updateFromData()` diff algorithm to use `nodeText()`.
 
 ### 6. SHA-256 hash computed on every save
 - **Where:** `src/datastore/DataStore.cpp:298-300`

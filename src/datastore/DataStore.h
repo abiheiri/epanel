@@ -142,7 +142,7 @@ private:
 
     bool m_applyingExternalChange = false;
     bool m_syncingFromSafari = false;
-    QByteArray m_lastWrittenDataHash;
+    size_t m_lastWrittenDataHash = 0;
     QDateTime m_lastJsonModified;
     qint64 m_lastJsonSize = 0;
     QString m_lastKnownNotesContent;

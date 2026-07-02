@@ -11,7 +11,7 @@
 #include <QJsonObject>
 #include <QJsonArray>
 #include <QRegularExpression>
-#include <QCryptographicHash>
+#include <QByteArrayView>
 #include <QDesktopServices>
 #include <QApplication>
 #include <QPushButton>
@@ -332,7 +332,7 @@ void DataStore::saveDataNow()
 
     QJsonDocument doc = m_data.toJsonDocument();
     QByteArray jsonBytes = doc.toJson(QJsonDocument::Indented);
-    m_lastWrittenDataHash = QCryptographicHash::hash(jsonBytes, QCryptographicHash::Sha256);
+    m_lastWrittenDataHash = qHash(QByteArrayView(jsonBytes));
 
     QSaveFile file(path);
     if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
@@ -416,7 +416,7 @@ void DataStore::handleExternalDataChange()
     QFile file(path);
     if (!file.open(QIODevice::ReadOnly)) return;
     const QByteArray bytes = file.readAll();
-    const QByteArray hash = QCryptographicHash::hash(bytes, QCryptographicHash::Sha256);
+    const size_t hash = qHash(QByteArrayView(bytes));
     if (hash == m_lastWrittenDataHash) {
         m_lastJsonModified = mtime;
         m_lastJsonSize = size;
