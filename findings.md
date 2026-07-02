@@ -63,44 +63,48 @@ The codebase already does several things well: `DataStore` keeps hash indexes fo
 
 ## 🟡 Medium Priority
 
-### 8. Per-folder entry lookup is still linear
+### 8. Per-folder entry lookup is still linear 🔵 **DEFERRED**
 - **Where:** `DataStore::deleteEntry`, `moveEntry`, `findEntry`
-- **Issue:** Even though `DataStore` knows the parent folder from `m_entryParentIndex`, finding the actual `Entry` inside that folder's `QVector` scans linearly. For typical folder sizes (tens to low hundreds) this is negligible, but an index would make it truly O(1).
-- **Fix:** Keep an `Entry*` index (mirroring `m_folderIndex`) or store entries in a hash map per folder. Only worthwhile if folder sizes routinely exceed ~200 entries.
+- **Issue:** Even though `DataStore` knows the parent folder from `m_entryParentIndex`, finding the actual `Entry` inside that folder's `QVector` scans linearly.
+- **Decision:** Only worthwhile if folder sizes routinely exceed ~200 entries. Current linear scan within a single folder is O(n) where n is that folder's entry count (typically small).
 
-### 9. Repeated string normalization (`toLower().trimmed()`)
+### 9. Repeated string normalization (`toLower().trimmed()`) ✅ **DONE** `f9ca649`
 - **Where:** `updateFolderNode()`, `deduplicate()`, `foldersEqual()`, `mergeFolder()`, import paths
 - **Issue:** Same text is normalized repeatedly for comparisons. Each call allocates a new `QString`.
 - **Impact:** CPU — moderate with large datasets.
-- **Fix:** Normalize once per entry and cache, or use a case-insensitive comparator.
+- **Fix:** ~~Normalize once per entry and cache, or use a case-insensitive comparator.~~
+  Cached `sourceSub.name.toLower()` into `const QString key` in both `importSafariBookmarks` and `applyFullSafariImport` merge lambdas, avoiding duplicate normalization on find+insert. Added `m_normalizedTexts` index (#10) which further reduces normalization during sync.
 
-### 10. Safari sync re-parses the whole plist and rebuilds URL sets
+### 10. Safari sync re-parses the whole plist and rebuilds URL sets ✅ **DONE** `ad8f8c5`
 - **Where:** `DataStore.cpp:843-848`, `1118-1148`, `SafariSyncManager.mm:196-211`
 - **Issue:** Each poll/file-change event recursively scans the entire tree to build a `QSet` of existing URLs.
 - **Impact:** CPU on sync polls.
-- **Fix:** Maintain a global case-insensitive URL/text index in `DataStore` and update it incrementally.
+- **Fix:** ~~Maintain a global case-insensitive URL/text index in `DataStore` and update it incrementally.~~
+  Added `m_normalizedTexts` (QSet<QString>) to DataStore, maintained via `rebuildTextIndex()` and updated on `addEntry()`. `importSafariBookmarks()` and `applyFullSafariImport()` now copy from this index instead of doing recursive tree walks.
 
-### 11. `TreeModel::indexForNode()` uses linear `indexOf`
+### 11. `TreeModel::indexForNode()` uses linear `indexOf` ✅ **DONE** `e478c35`
 - **Where:** `src/ui/TreeModel.cpp:219`
 - **Issue:** Scans `parent->children` to find a node's row, called from `parent()` and update paths.
 - **Impact:** Minor CPU — children lists are typically small.
-- **Fix:** Store each `Node`'s row index and update it on insert/remove.
+- **Fix:** ~~Store each `Node`'s row index and update it on insert/remove.~~
+  Added `int row` field to Node struct. Rows set in `buildNode()` and updated via `Node::renumberChildren()` after every insert/remove in `updateFolderNode()`. `indexForNode()` now returns `createIndex(node->row, 0, node)` — O(1).
 
-### 12. Triple data copy during save
+### 12. Triple data copy during save 🔵 **DEFERRED**
 - **Where:** `src/datastore/DataStore.cpp:299`
-- **Issue:** The full JSON bytes are materialized into a `QByteArray` for hashing, then written. The data exists in three forms simultaneously: the `Folder`/`Entry` tree, the `QJsonDocument`, and the `QByteArray`.
-- **Impact:** Memory spike during save.
-- **Fix:** Write directly to `QSaveFile` via `QJsonDocument` streaming, compute hash incrementally if still needed.
+- **Issue:** The full JSON bytes are materialized into a `QByteArray` for hashing, then written.
+- **Decision:** Inherent to JSON serialization — `toJson()` returns QByteArray which must exist for both hashing and writing. `qHash` (replaced from SHA-256 in #6) makes this negligible. True streaming requires replacing `QJsonDocument` with a streaming serializer.
 
-### 13. Temporary `QSet` constructed from `QVector` in `moveEntries()`
+### 13. Temporary `QSet` constructed from `QVector` in `moveEntries()` ✅ **DONE** `0d8bc33`
 - **Where:** `src/datastore/DataStore.cpp:709`
 - **Issue:** `QSet<QUuid> moveSet(toMove.begin(), toMove.end())` creates a hash set solely for O(1) contains-checks in a single loop.
-- **Fix:** Since `toMove` is typically small (from user drag-select), use `std::find` on the vector, or sort + binary search.
+- **Fix:** ~~Since `toMove` is typically small (from user drag-select), use `std::find` on the vector, or sort + binary search.~~
+  Replaced `QSet<QUuid> moveSet` with `std::sort` + `std::binary_search` on a copy of the vector.
 
-### 14. `EPanelData` struct copies in external-change and import functions
+### 14. `EPanelData` struct copies in external-change and import functions ✅ **DONE** `0d8bc33`
 - **Where:** `handleExternalDataChange()`, `importJson()`, `mergeData()`
 - **Issue:** `EPanelData` is copied by value (e.g., `EPanelData incoming = fromJson(doc)` then `m_data = incoming`). The struct contains a full folder tree.
-- **Fix:** Use `std::move` where the temporary is discarded after assignment.
+- **Fix:** ~~Use `std::move` where the temporary is discarded after assignment.~~
+  Added `std::move` in `handleExternalDataChange()` (line 445), `loadData()` (line 216), and `importJson()` (line 836).
 
 ---
 
