@@ -123,6 +123,9 @@ private:
     void unindexFolderRecursively(Folder &folder);
     void unindexEntry(const QUuid &entryId);
 
+    void recomputeAllEntryCounts(Folder &folder);
+    void adjustEntryCounts(const QUuid &folderId, int delta);
+
     void moveExistingContentToOriginalFolder();
     void applyFullSafariImport(const QVector<Folder> &bookmarkFolders, const Folder &readingList);
 

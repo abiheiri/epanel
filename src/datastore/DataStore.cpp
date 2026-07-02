@@ -229,6 +229,7 @@ void DataStore::rebuildIndex()
     m_entryParentIndex.clear();
     m_folderParentIndex.clear();
     indexFolder(m_data.rootFolder, QUuid());
+    recomputeAllEntryCounts(m_data.rootFolder);
 }
 
 void DataStore::indexFolder(Folder &folder, const QUuid &parentId)
@@ -266,6 +267,24 @@ void DataStore::unindexFolderRecursively(Folder &folder)
 void DataStore::unindexEntry(const QUuid &entryId)
 {
     m_entryParentIndex.remove(entryId);
+}
+
+void DataStore::recomputeAllEntryCounts(Folder &folder)
+{
+    folder.recomputeEntryCount();
+}
+
+void DataStore::adjustEntryCounts(const QUuid &folderId, int delta)
+{
+    QUuid current = folderId;
+    while (!current.isNull()) {
+        Folder *f = findFolder(current);
+        if (!f) break;
+        f->entryCount += delta;
+        auto it = m_folderParentIndex.find(current);
+        if (it == m_folderParentIndex.end()) break;
+        current = it.value();
+    }
 }
 
 void DataStore::loadNotes()
@@ -494,6 +513,9 @@ void DataStore::deleteFolder(const QUuid &folderId)
     // Capture parent id before unindexing the subtree.
     const QUuid parentId = m_folderParentIndex.value(folderId);
 
+    // Capture entry count before removing from indexes.
+    const int removedCount = folder->totalEntryCount();
+
     // Remove the folder and all descendants from the indexes.
     unindexFolderRecursively(*folder);
 
@@ -503,6 +525,7 @@ void DataStore::deleteFolder(const QUuid &folderId)
     for (int i = 0; i < parent->subfolders.size(); ++i) {
         if (parent->subfolders[i].id == folderId) {
             parent->subfolders.removeAt(i);
+            adjustEntryCounts(parentId, -removedCount);
             scheduleSaveData();
             emit dataChanged();
             return;
@@ -542,6 +565,7 @@ void DataStore::moveFolder(const QUuid &folderId, const QUuid &toParentId)
     if (index < 0) return;
 
     // Move the folder out to avoid a deep copy of its subtree.
+    const int count = sourceParent->subfolders[index].totalEntryCount();
     Folder detached = std::move(sourceParent->subfolders[index]);
     sourceParent->subfolders.removeAt(index);
 
@@ -558,6 +582,9 @@ void DataStore::moveFolder(const QUuid &folderId, const QUuid &toParentId)
 
     targetParent->subfolders.prepend(std::move(detached));
     indexFolder(targetParent->subfolders.first(), toParentId);
+
+    adjustEntryCounts(currentParent, -count);
+    adjustEntryCounts(toParentId, count);
 
     scheduleSaveData();
     emit dataChanged();
@@ -586,6 +613,7 @@ void DataStore::addEntry(const Entry &entry, const QUuid &folderId)
     if (!entry.id.isNull()) {
         m_entryParentIndex[entry.id] = folderId;
     }
+    adjustEntryCounts(folderId, 1);
     scheduleSaveData();
     emit dataChanged();
 }
@@ -602,6 +630,7 @@ void DataStore::deleteEntry(const QUuid &entryId)
         if (folder->entries[i].id == entryId) {
             folder->entries.removeAt(i);
             m_entryParentIndex.remove(entryId);
+            adjustEntryCounts(parentIt.value(), -1);
             scheduleSaveData();
             emit dataChanged();
             return;
@@ -629,15 +658,20 @@ void DataStore::deleteEntries(const QSet<QUuid> &ids)
         const QSet<QUuid> &toRemove = it.value();
         QVector<Entry> kept;
         kept.reserve(folder->entries.size());
+        int removed = 0;
         for (const Entry &entry : folder->entries) {
             if (!toRemove.contains(entry.id)) {
                 kept.append(entry);
             } else {
                 m_entryParentIndex.remove(entry.id);
+                ++removed;
                 changed = true;
             }
         }
         folder->entries = kept;
+        if (removed > 0) {
+            adjustEntryCounts(it.key(), -removed);
+        }
     }
 
     if (changed) {
@@ -679,6 +713,9 @@ void DataStore::moveEntry(const QUuid &entryId, const QUuid &toFolderId)
     targetFolder->entries.append(moved);
     m_entryParentIndex[entryId] = toFolderId;
 
+    adjustEntryCounts(parentIt.value(), -1);
+    adjustEntryCounts(toFolderId, 1);
+
     scheduleSaveData();
     emit dataChanged();
 }
@@ -709,19 +746,25 @@ void DataStore::moveEntries(const QVector<QUuid> &entryIds, const QUuid &toFolde
 
         QVector<Entry> kept;
         kept.reserve(sourceFolder->entries.size());
+        int moved = 0;
         for (const Entry &entry : sourceFolder->entries) {
             if (moveSet.contains(entry.id)) {
                 targetFolder->entries.append(entry);
                 m_entryParentIndex[entry.id] = toFolderId;
+                ++moved;
                 changed = true;
             } else {
                 kept.append(entry);
             }
         }
         sourceFolder->entries = kept;
+        if (moved > 0) {
+            adjustEntryCounts(it.key(), -moved);
+        }
     }
 
     if (changed) {
+        adjustEntryCounts(toFolderId, entryIds.size());
         scheduleSaveData();
         emit dataChanged();
     }

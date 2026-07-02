@@ -1,6 +1,5 @@
 #include "Folder.h"
 #include <QJsonArray>
-#include <numeric>
 
 static const QUuid RootFolderId("00000000-0000-0000-0000-000000000000");
 
@@ -21,10 +20,16 @@ bool Folder::isRoot() const
 
 int Folder::totalEntryCount() const
 {
-    return entries.size() + std::accumulate(subfolders.begin(), subfolders.end(), 0,
-                                            [](int sum, const Folder &sub) {
-                                                return sum + sub.totalEntryCount();
-                                            });
+    return entryCount;
+}
+
+void Folder::recomputeEntryCount()
+{
+    entryCount = static_cast<int>(entries.size());
+    for (auto &sub : subfolders) {
+        sub.recomputeEntryCount();
+        entryCount += sub.entryCount;
+    }
 }
 
 QJsonObject Folder::toJson() const

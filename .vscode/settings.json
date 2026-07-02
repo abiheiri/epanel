@@ -20,5 +20,9 @@
     // Optional: if you use clangd instead of the Microsoft extension.
     "clangd.arguments": [
         "--compile-commands-dir=${workspaceFolder}"
-    ]
+    ],
+    "chat.tools.terminal.autoApprove": {
+        "git rev-parse": true,
+        "/Users/al/Documents/epanel_cpp/.venv/bin/ninja": true
+    }
 }
