@@ -13,9 +13,14 @@ struct TreeModel::Node {
     ItemType type = EntryType;
     QUuid id;
     int entryCount = 0; // for folders: total recursive entry count
+    int row = 0;
     Node *parent = nullptr;
     QVector<Node *> children;
     QVariantMap userData;
+    static void renumberChildren(Node *parent) {
+        for (int i = 0; i < parent->children.size(); ++i)
+            parent->children[i]->row = i;
+    }
 };
 
 TreeModel::TreeModel(DataStore *store, QObject *parent)
@@ -160,6 +165,7 @@ void TreeModel::updateFolderNode(Node *parentNode, const Folder &folder)
             }
             beginInsertRows(parentIndex, row, row);
             parentNode->children.insert(row, newNode);
+            Node::renumberChildren(parentNode);
             endInsertRows();
             ++row;
         } else {
@@ -168,7 +174,7 @@ void TreeModel::updateFolderNode(Node *parentNode, const Folder &folder)
             nameMap.remove(nodeText(match).toLower().trimmed());
 
             // Remove any stale children that stood between the current row and the match.
-            const int matchIndex = parentNode->children.indexOf(match);
+            const int matchIndex = match->row;
             if (matchIndex > row) {
                 beginRemoveRows(parentIndex, row, matchIndex - 1);
                 for (int i = matchIndex - 1; i >= row; --i) {
@@ -178,6 +184,7 @@ void TreeModel::updateFolderNode(Node *parentNode, const Folder &folder)
                     clearNode(n);
                 }
                 endRemoveRows();
+                Node::renumberChildren(parentNode);
             }
 
             bool displayChanged = false;
@@ -212,6 +219,7 @@ void TreeModel::updateFolderNode(Node *parentNode, const Folder &folder)
             clearNode(n);
         }
         endRemoveRows();
+        Node::renumberChildren(parentNode);
     }
 }
 
@@ -228,6 +236,7 @@ void TreeModel::buildNode(Node *parentNode, const Folder &folder)
         folderNode->parent = parentNode;
         folderNode->userData[QStringLiteral("type")] = QStringLiteral("folder");
         folderNode->userData[QStringLiteral("id")] = QVariant(sub.id);
+        folderNode->row = parentNode->children.size();
         parentNode->children.append(folderNode);
         buildNode(folderNode, sub);
     }
@@ -239,6 +248,7 @@ void TreeModel::buildNode(Node *parentNode, const Folder &folder)
         entryNode->parent = parentNode;
         entryNode->userData[QStringLiteral("type")] = QStringLiteral("entry");
         entryNode->userData[QStringLiteral("id")] = QVariant(entry.id);
+        entryNode->row = parentNode->children.size();
         parentNode->children.append(entryNode);
     }
 }
@@ -253,9 +263,7 @@ TreeModel::Node *TreeModel::nodeForIndex(const QModelIndex &index) const
 QModelIndex TreeModel::indexForNode(Node *node) const
 {
     if (!node || node == m_root) return QModelIndex();
-    int row = node->parent ? node->parent->children.indexOf(node) : -1;
-    if (row < 0) return QModelIndex();
-    return createIndex(row, 0, node);
+    return createIndex(node->row, 0, node);
 }
 
 // cppcheck-suppress shadowFunction
