@@ -79,4 +79,5 @@ private:
     void updateFolderNode(Node *parentNode, const class Folder &folder);
     Node *findNode(Node *node, const QUuid &id, ItemType type) const;
     static int folderEntryCount(Node *folderNode);
+    QString nodeText(const Node *node) const;
 };

@@ -71,6 +71,7 @@ public:
 
     // Helpers
     void showAlert(const QString &message);
+    Folder *findFolder(const QUuid &folderId);
 
 signals:
     void dataChanged();
@@ -111,7 +112,6 @@ private:
 
     QVector<Entry> parseCsv(const QString &csv) const;
 
-    Folder *findFolder(const QUuid &folderId);
     bool modifyFolder(const QUuid &folderId, const std::function<void(Folder &)> &modifier);
 
     void deduplicate(Folder &folder);

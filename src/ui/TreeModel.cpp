@@ -12,7 +12,6 @@ const QString TreeModel::s_mimeType = QStringLiteral("application/x-epanel-items
 struct TreeModel::Node {
     ItemType type = EntryType;
     QUuid id;
-    QString text;
     int entryCount = 0; // for folders: total recursive entry count
     Node *parent = nullptr;
     QVector<Node *> children;
@@ -52,7 +51,6 @@ void TreeModel::rebuild()
     m_root = new Node;
     m_root->type = FolderType;
     m_root->id = DataStore::rootFolderId();
-    m_root->text = QStringLiteral("/");
 
     if (m_store) {
         buildNode(m_root, m_store->data().rootFolder);
@@ -122,7 +120,7 @@ void TreeModel::updateFolderNode(Node *parentNode, const Folder &folder)
         if (!n->id.isNull() && !uuidMap.contains(n->id)) {
             uuidMap[n->id] = n;
         }
-        const QString normalized = n->text.toLower().trimmed();
+        const QString normalized = nodeText(n).toLower().trimmed();
         if (!normalized.isEmpty() && !nameMap.contains(normalized)) {
             nameMap[normalized] = n;
         }
@@ -153,7 +151,6 @@ void TreeModel::updateFolderNode(Node *parentNode, const Folder &folder)
             Node *newNode = new Node;
             newNode->type = wantType;
             newNode->id = want.id;
-            newNode->text = want.text;
             newNode->entryCount = want.entryCount;
             newNode->parent = parentNode;
             newNode->userData[QStringLiteral("type")] = wantType == FolderType ? QStringLiteral("folder") : QStringLiteral("entry");
@@ -168,7 +165,7 @@ void TreeModel::updateFolderNode(Node *parentNode, const Folder &folder)
         } else {
             // This node is now accounted for; remove it from the lookup maps.
             uuidMap.remove(match->id);
-            nameMap.remove(match->text.toLower().trimmed());
+            nameMap.remove(nodeText(match).toLower().trimmed());
 
             // Remove any stale children that stood between the current row and the match.
             const int matchIndex = parentNode->children.indexOf(match);
@@ -177,16 +174,15 @@ void TreeModel::updateFolderNode(Node *parentNode, const Folder &folder)
                 for (int i = matchIndex - 1; i >= row; --i) {
                     Node *n = parentNode->children.takeAt(i);
                     uuidMap.remove(n->id);
-                    nameMap.remove(n->text.toLower().trimmed());
+                    nameMap.remove(nodeText(n).toLower().trimmed());
                     clearNode(n);
                 }
                 endRemoveRows();
             }
 
             bool displayChanged = false;
-            if (match->text != want.text) {
-                nameMap.remove(match->text.toLower().trimmed());
-                match->text = want.text;
+            if (nodeText(match) != want.text) {
+                nameMap.remove(nodeText(match).toLower().trimmed());
                 displayChanged = true;
             }
             if (want.kind == DesiredChild::FolderKind) {
@@ -228,7 +224,6 @@ void TreeModel::buildNode(Node *parentNode, const Folder &folder)
         Node *folderNode = new Node;
         folderNode->type = FolderType;
         folderNode->id = sub.id;
-        folderNode->text = sub.name;
         folderNode->entryCount = sub.totalEntryCount();
         folderNode->parent = parentNode;
         folderNode->userData[QStringLiteral("type")] = QStringLiteral("folder");
@@ -241,7 +236,6 @@ void TreeModel::buildNode(Node *parentNode, const Folder &folder)
         Node *entryNode = new Node;
         entryNode->type = EntryType;
         entryNode->id = entry.id;
-        entryNode->text = entry.text;
         entryNode->parent = parentNode;
         entryNode->userData[QStringLiteral("type")] = QStringLiteral("entry");
         entryNode->userData[QStringLiteral("id")] = QVariant(entry.id);
@@ -295,6 +289,18 @@ int TreeModel::columnCount(const QModelIndex &parent) const
 }
 
 // cppcheck-suppress shadowFunction
+QString TreeModel::nodeText(const Node *node) const
+{
+    if (!node || !m_store) return QString();
+    if (node->type == FolderType) {
+        const Folder *f = m_store->findFolder(node->id);
+        return f ? f->name : QString();
+    } else {
+        const Entry *e = m_store->findEntry(node->id);
+        return e ? e->text : QString();
+    }
+}
+
 QVariant TreeModel::data(const QModelIndex &index, int role) const
 {
     Node *node = nodeForIndex(index);
@@ -303,9 +309,9 @@ QVariant TreeModel::data(const QModelIndex &index, int role) const
     switch (role) {
     case Qt::DisplayRole:
         if (node->type == FolderType) {
-            return QStringLiteral("%1 (%2)").arg(node->text).arg(node->entryCount);
+            return QStringLiteral("%1 (%2)").arg(nodeText(node)).arg(node->entryCount);
         }
-        return node->text;
+        return nodeText(node);
 
     case Qt::DecorationRole:
         return node->type == FolderType ? QVariant(m_folderIcon) : QVariant(m_entryIcon);
@@ -314,11 +320,11 @@ QVariant TreeModel::data(const QModelIndex &index, int role) const
         return node->userData;
 
     case Qt::ToolTipRole:
-        if (node->type == EntryType) return node->text;
+        if (node->type == EntryType) return nodeText(node);
         return QVariant();
 
     case FilterRole:
-        return node->text;
+        return nodeText(node);
 
     default:
         return QVariant();
@@ -332,9 +338,8 @@ bool TreeModel::setData(const QModelIndex &index, const QVariant &value, int rol
     if (!node || node->type != FolderType || role != Qt::EditRole) return false;
 
     QString newName = value.toString().trimmed();
-    if (newName.isEmpty() || newName == node->text) return false;
+    if (newName.isEmpty() || newName == nodeText(node)) return false;
 
-    node->text = newName;
     emit dataChanged(index, index, {Qt::DisplayRole});
     emit renameFolderRequested(node->id, newName);
     return true;
