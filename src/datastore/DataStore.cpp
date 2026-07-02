@@ -213,7 +213,7 @@ void DataStore::loadData()
         return;
     }
     deduplicate(loaded.rootFolder);
-    m_data = loaded;
+    m_data = std::move(loaded);
     rebuildIndex();
 
     QFileInfo info(path);
@@ -441,7 +441,7 @@ void DataStore::handleExternalDataChange()
         deduplicate(m_data.rootFolder);
     } else {
         // No local pending changes: let the file win so deletions propagate.
-        m_data = incoming;
+        m_data = std::move(incoming);
         deduplicate(m_data.rootFolder);
     }
     rebuildIndex();
@@ -746,13 +746,17 @@ void DataStore::moveEntries(const QVector<QUuid> &entryIds, const QUuid &toFolde
         if (!sourceFolder) continue;
 
         const QVector<QUuid> &toMove = it.value();
-        QSet<QUuid> moveSet(toMove.begin(), toMove.end());
+
+        // Sort for binary_search in the single-pass loop below;
+        // drag-select sets are typically small so this is fast.
+        QVector<QUuid> sorted(toMove);
+        std::sort(sorted.begin(), sorted.end());
 
         QVector<Entry> kept;
         kept.reserve(sourceFolder->entries.size());
         int moved = 0;
         for (const Entry &entry : sourceFolder->entries) {
-            if (moveSet.contains(entry.id)) {
+            if (std::binary_search(sorted.begin(), sorted.end(), entry.id)) {
                 targetFolder->entries.append(entry);
                 m_entryParentIndex[entry.id] = toFolderId;
                 ++moved;
@@ -829,7 +833,7 @@ void DataStore::importJson(const QString &path)
         showAlert(tr("Failed to import JSON: %1").arg(error));
         return;
     }
-    m_data = loaded;
+    m_data = std::move(loaded);
     deduplicate(m_data.rootFolder);
     rebuildIndex();
     scheduleSaveData();
