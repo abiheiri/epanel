@@ -16,7 +16,6 @@ struct TreeModel::Node {
     int row = 0;
     Node *parent = nullptr;
     QVector<Node *> children;
-    QVariantMap userData;
     static void renumberChildren(Node *parent) {
         for (int i = 0; i < parent->children.size(); ++i)
             parent->children[i]->row = i;
@@ -157,8 +156,6 @@ void TreeModel::updateFolderNode(Node *parentNode, const Folder &folder)
             newNode->id = want.id;
             newNode->entryCount = want.entryCount;
             newNode->parent = parentNode;
-            newNode->userData[QStringLiteral("type")] = wantType == FolderType ? QStringLiteral("folder") : QStringLiteral("entry");
-            newNode->userData[QStringLiteral("id")] = QVariant(want.id);
             if (want.kind == DesiredChild::FolderKind) {
                 buildNode(newNode, *static_cast<const Folder *>(want.source));
             }
@@ -233,8 +230,6 @@ void TreeModel::buildNode(Node *parentNode, const Folder &folder)
         folderNode->id = sub.id;
         folderNode->entryCount = sub.totalEntryCount();
         folderNode->parent = parentNode;
-        folderNode->userData[QStringLiteral("type")] = QStringLiteral("folder");
-        folderNode->userData[QStringLiteral("id")] = QVariant(sub.id);
         folderNode->row = parentNode->children.size();
         parentNode->children.append(folderNode);
         buildNode(folderNode, sub);
@@ -245,8 +240,6 @@ void TreeModel::buildNode(Node *parentNode, const Folder &folder)
         entryNode->type = EntryType;
         entryNode->id = entry.id;
         entryNode->parent = parentNode;
-        entryNode->userData[QStringLiteral("type")] = QStringLiteral("entry");
-        entryNode->userData[QStringLiteral("id")] = QVariant(entry.id);
         entryNode->row = parentNode->children.size();
         parentNode->children.append(entryNode);
     }
@@ -323,8 +316,12 @@ QVariant TreeModel::data(const QModelIndex &index, int role) const
     case Qt::DecorationRole:
         return node->type == FolderType ? QVariant(m_folderIcon) : QVariant(m_entryIcon);
 
-    case Qt::UserRole:
-        return node->userData;
+    case Qt::UserRole: {
+        QVariantMap m;
+        m[QStringLiteral("type")] = node->type == FolderType ? QStringLiteral("folder") : QStringLiteral("entry");
+        m[QStringLiteral("id")] = QVariant(node->id);
+        return m;
+    }
 
     case Qt::ToolTipRole:
         if (node->type == EntryType) return nodeText(node);
