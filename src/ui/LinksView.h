@@ -12,6 +12,7 @@
 class DataStore;
 class QTreeView;
 class QLineEdit;
+class QTimer;
 
 class LinksView : public QWidget {
     Q_OBJECT
@@ -28,6 +29,7 @@ private slots:
     void onDataChanged();
     void onMoveItems();
     void onSearchTextChanged(const QString &text);
+    void applySearchFilter();
 
 private:
     void buildUi();
@@ -54,4 +56,6 @@ private:
 
     bool m_searchActive = false;
     QSet<QUuid> m_preSearchExpanded;
+    QTimer *m_searchDebounceTimer = nullptr;
+    QString m_pendingSearchText;
 };

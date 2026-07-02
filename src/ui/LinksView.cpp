@@ -23,6 +23,7 @@
 #include <QRegularExpression>
 #include <QItemSelectionModel>
 #include <QApplication>
+#include <QTimer>
 
 namespace {
 
@@ -107,6 +108,11 @@ void LinksView::buildUi()
     connect(m_model, &TreeModel::moveEntriesRequested, m_store, &DataStore::moveEntries, Qt::QueuedConnection);
     connect(m_model, &TreeModel::moveFolderRequested, m_store, &DataStore::moveFolder, Qt::QueuedConnection);
     connect(m_model, &TreeModel::renameFolderRequested, m_store, &DataStore::renameFolder, Qt::QueuedConnection);
+
+    m_searchDebounceTimer = new QTimer(this);
+    m_searchDebounceTimer->setSingleShot(true);
+    m_searchDebounceTimer->setInterval(150);
+    connect(m_searchDebounceTimer, &QTimer::timeout, this, &LinksView::applySearchFilter);
 
     QShortcut *deleteShortcut = new QShortcut(QKeySequence::Delete, this);
     connect(deleteShortcut, &QShortcut::activated, this, &LinksView::onDeleteKey);
@@ -296,6 +302,13 @@ void LinksView::onMoveItems()
 
 void LinksView::onSearchTextChanged(const QString &text)
 {
+    m_pendingSearchText = text;
+    m_searchDebounceTimer->start();
+}
+
+void LinksView::applySearchFilter()
+{
+    const QString text = m_pendingSearchText;
     const bool hasSearch = !text.trimmed().isEmpty();
 
     if (hasSearch && !m_searchActive) {
