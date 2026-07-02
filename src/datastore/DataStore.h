@@ -145,7 +145,6 @@ private:
     size_t m_lastWrittenDataHash = 0;
     QDateTime m_lastJsonModified;
     qint64 m_lastJsonSize = 0;
-    QString m_lastKnownNotesContent;
     QDateTime m_lastNotesModified;
     qint64 m_lastNotesSize = 0;
 

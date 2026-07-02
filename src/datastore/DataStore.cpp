@@ -310,7 +310,6 @@ void DataStore::loadNotes()
     if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) return;
     const QString content = QString::fromUtf8(file.readAll());
     m_notes = content;
-    m_lastKnownNotesContent = content;
 
     QFileInfo info(path);
     m_lastNotesModified = info.lastModified();
@@ -379,7 +378,6 @@ void DataStore::saveNotesNow()
     if (path.isEmpty()) return;
 
     m_saveNotesTimer->stop();
-    m_lastKnownNotesContent = m_notes;
 
     QSaveFile file(path);
     if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
@@ -483,9 +481,8 @@ void DataStore::handleExternalNotesChange()
     const QString content = QString::fromUtf8(file.readAll());
     m_lastNotesModified = mtime;
     m_lastNotesSize = size;
-    if (content == m_lastKnownNotesContent) return;
+    if (content == m_notes) return;
 
-    m_lastKnownNotesContent = content;
     m_notes = content;
     emit notesChanged(m_notes);
 }
