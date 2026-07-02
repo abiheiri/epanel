@@ -228,8 +228,10 @@ void DataStore::rebuildIndex()
     m_folderIndex.clear();
     m_entryParentIndex.clear();
     m_folderParentIndex.clear();
+    m_normalizedTexts.clear();
     indexFolder(m_data.rootFolder, QUuid());
     recomputeAllEntryCounts(m_data.rootFolder);
+    rebuildTextIndex();
 }
 
 void DataStore::indexFolder(Folder &folder, const QUuid &parentId)
@@ -267,6 +269,18 @@ void DataStore::unindexFolderRecursively(Folder &folder)
 void DataStore::unindexEntry(const QUuid &entryId)
 {
     m_entryParentIndex.remove(entryId);
+}
+
+void DataStore::rebuildTextIndex()
+{
+    m_normalizedTexts.clear();
+    std::function<void(const Folder &)> collect = [&](const Folder &folder) {
+        for (const auto &e : folder.entries)
+            m_normalizedTexts.insert(e.text.toLower().trimmed());
+        for (const auto &sub : folder.subfolders)
+            collect(sub);
+    };
+    collect(m_data.rootFolder);
 }
 
 void DataStore::recomputeAllEntryCounts(Folder &folder)
@@ -614,6 +628,7 @@ void DataStore::addEntry(const Entry &entry, const QUuid &folderId)
     if (!entry.id.isNull()) {
         m_entryParentIndex[entry.id] = folderId;
     }
+    m_normalizedTexts.insert(entry.text.toLower().trimmed());
     adjustEntryCounts(folderId, 1);
     scheduleSaveData();
     emit folderDataChanged(folderId);
@@ -894,12 +909,7 @@ void DataStore::importSafariBookmarks(const QString &path)
         return;
     }
 
-    QSet<QString> existingURLs;
-    std::function<void(const Folder &)> collect = [&](const Folder &folder) {
-        for (const auto &e : folder.entries) existingURLs.insert(e.text.toLower().trimmed());
-        for (const auto &sub : folder.subfolders) collect(sub);
-    };
-    collect(m_data.rootFolder);
+    QSet<QString> existingURLs = m_normalizedTexts;
 
     auto mergeFolderImpl = [&](const Folder &source, Folder &target, QSet<QString> &urls, int &entriesAdded, int &foldersAdded, int &dupes, auto &self) -> void {
         for (const auto &entry : source.entries) {
@@ -1169,12 +1179,7 @@ void DataStore::moveExistingContentToOriginalFolder()
 
 void DataStore::applyFullSafariImport(const QVector<Folder> &bookmarkFolders, const Folder &readingList)
 {
-    QSet<QString> existingURLs;
-    std::function<void(const Folder &)> collect = [&](const Folder &folder) {
-        for (const auto &e : folder.entries) existingURLs.insert(e.text.toLower().trimmed());
-        for (const auto &sub : folder.subfolders) collect(sub);
-    };
-    collect(m_data.rootFolder);
+    QSet<QString> existingURLs = m_normalizedTexts;
 
     auto mergeFolderImpl = [&](const Folder &source, Folder &target, QSet<QString> &urls, auto &self) -> void {
         for (const auto &entry : source.entries) {

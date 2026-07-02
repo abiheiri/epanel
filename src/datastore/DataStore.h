@@ -155,6 +155,10 @@ private:
     QHash<QUuid, QUuid> m_entryParentIndex;
     // folder id -> parent folder id (root maps to null)
     QHash<QUuid, QUuid> m_folderParentIndex;
+    // normalized entry text set for O(1) dedup during sync/import
+    QSet<QString> m_normalizedTexts;
+
+    void rebuildTextIndex();
 
     bool m_safariSyncEnabled = false;
     QDateTime m_lastSyncDate;
