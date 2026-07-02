@@ -15,11 +15,18 @@ struct TreeModel::Node {
     int entryCount = 0; // for folders: total recursive entry count
     Node *parent = nullptr;
     QVector<Node *> children;
+    QVariantMap userData;
 };
 
 TreeModel::TreeModel(DataStore *store, QObject *parent)
     : QAbstractItemModel(parent), m_store(store)
 {
+    m_folderIcon = QIcon::fromTheme(QStringLiteral("folder"));
+    if (m_folderIcon.isNull()) m_folderIcon = QIcon::fromTheme(QStringLiteral("folder-open"));
+    m_entryIcon = QIcon::fromTheme(QStringLiteral("text-html"));
+    if (m_entryIcon.isNull()) m_entryIcon = QIcon::fromTheme(QStringLiteral("document-open"));
+    if (m_entryIcon.isNull()) m_entryIcon = QIcon::fromTheme(QStringLiteral("text-plain"));
+
     rebuild();
 }
 
@@ -119,6 +126,8 @@ void TreeModel::updateFolderNode(Node *parentNode, const Folder &folder)
             newNode->text = want.text;
             newNode->entryCount = want.entryCount;
             newNode->parent = parentNode;
+            newNode->userData[QStringLiteral("type")] = wantType == FolderType ? QStringLiteral("folder") : QStringLiteral("entry");
+            newNode->userData[QStringLiteral("id")] = QVariant(want.id);
             if (want.kind == DesiredChild::FolderKind) {
                 buildNode(newNode, *static_cast<const Folder *>(want.source));
             }
@@ -192,6 +201,8 @@ void TreeModel::buildNode(Node *parentNode, const Folder &folder)
         folderNode->text = sub.name;
         folderNode->entryCount = sub.totalEntryCount();
         folderNode->parent = parentNode;
+        folderNode->userData[QStringLiteral("type")] = QStringLiteral("folder");
+        folderNode->userData[QStringLiteral("id")] = QVariant(sub.id);
         parentNode->children.append(folderNode);
         buildNode(folderNode, sub);
     }
@@ -202,6 +213,8 @@ void TreeModel::buildNode(Node *parentNode, const Folder &folder)
         entryNode->id = entry.id;
         entryNode->text = entry.text;
         entryNode->parent = parentNode;
+        entryNode->userData[QStringLiteral("type")] = QStringLiteral("entry");
+        entryNode->userData[QStringLiteral("id")] = QVariant(entry.id);
         parentNode->children.append(entryNode);
     }
 }
@@ -264,24 +277,11 @@ QVariant TreeModel::data(const QModelIndex &index, int role) const
         }
         return node->text;
 
-    case Qt::DecorationRole: {
-        if (node->type == FolderType) {
-            QIcon icon = QIcon::fromTheme(QStringLiteral("folder"));
-            if (icon.isNull()) icon = QIcon::fromTheme(QStringLiteral("folder-open"));
-            return icon;
-        }
-        QIcon icon = QIcon::fromTheme(QStringLiteral("text-html"));
-        if (icon.isNull()) icon = QIcon::fromTheme(QStringLiteral("document-open"));
-        if (icon.isNull()) icon = QIcon::fromTheme(QStringLiteral("text-plain"));
-        return icon;
-    }
+    case Qt::DecorationRole:
+        return node->type == FolderType ? QVariant(m_folderIcon) : QVariant(m_entryIcon);
 
-    case Qt::UserRole: {
-        QVariantMap map;
-        map[QStringLiteral("type")] = node->type == FolderType ? QStringLiteral("folder") : QStringLiteral("entry");
-        map[QStringLiteral("id")] = QVariant(node->id);
-        return map;
-    }
+    case Qt::UserRole:
+        return node->userData;
 
     case Qt::ToolTipRole:
         if (node->type == EntryType) return node->text;

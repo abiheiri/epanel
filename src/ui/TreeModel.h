@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QAbstractItemModel>
+#include <QIcon>
 #include <QSet>
 #include <QUuid>
 #include <QVariantMap>
@@ -65,6 +66,8 @@ private:
 
     DataStore *m_store = nullptr;
     Node *m_root = nullptr;
+    QIcon m_folderIcon;
+    QIcon m_entryIcon;
 
     static const QString s_mimeType;
 
