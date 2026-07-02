@@ -110,34 +110,39 @@ The codebase already does several things well: `DataStore` keeps hash indexes fo
 
 ## 🟢 Lower Priority
 
-### 15. `std::function` overhead for recursive lambdas
+### 15. `std::function` overhead for recursive lambdas ✅ **DONE** `4b08333`
 - **Where:** `DataStore.cpp` and `LinksView.cpp` in several recursive helpers
 - **Issue:** Type-erasure overhead — plain recursive lambdas with `auto &self` would avoid this.
-- **Fix:** Replace `std::function` with `auto &self` recursive lambda pattern.
+- **Fix:** ~~Replace `std::function` with `auto &self` recursive lambda pattern.~~
+  Replaced 7 `std::function` recursive lambdas across DataStore.cpp, LinksView.cpp, and TreeModel.cpp with deduplicated `auto &self` pattern. Simplified the `walk` lambda in `descendantFolderIds()` since both branches called `walk(sub)`.
+  `modifyFolder()` keeps `std::function` as it's a public API.
 
-### 16. Full JSON rebuilt on every save
+### 16. Full JSON rebuilt on every save 🔵 **NOTE**
 - **Where:** `DataStore.cpp:314`
 - **Issue:** Serializes the entire tree after each edit.
-- **Fix:** Acceptable for typical sizes; for large data consider differential persistence or an append-only journal.
+- **Note:** Acceptable for typical sizes. True differential persistence or an append-only journal would require replacing `QJsonDocument` with a streaming serializer — a major architectural change not justified for current data volumes.
 
-### 17. Dialogs clone the folder tree into `QTreeWidget`
+### 17. Dialogs clone the folder tree into `QTreeWidget` 🔵 **NOTE**
 - **Where:** `AddEntryDialog`, `MoveItemDialog`, `NewFolderDialog`
 - **Issue:** Each dialog allocates a full copy of the folder hierarchy.
-- **Fix:** Share a read-only model/view or lazily populate items.
+- **Note:** Dialogs are short-lived and `QTreeWidgetItem` objects are lightweight (just text + UUID). Switching to a shared `QTreeView` + `TreeModel` would add complexity (filtering out excluded folders, different display needs) disproportionate to the benefit.
 
-### 18. `SettingsView::updateLabels()` reassigns strings unconditionally
+### 18. `SettingsView::updateLabels()` reassigns strings unconditionally ✅ **DONE** `82f8ed3`
 - **Where:** `SettingsView.cpp:100-127`
 - **Issue:** Label text is rebuilt even when nothing changed.
-- **Fix:** Compare before `setText()`.
+- **Fix:** ~~Compare before `setText()`.~~
+  Added text comparison guards before all three `setText()`/`clear()` calls.
 
-### 19. `QStringList lines = csv.split('\n')` copies all lines
+### 19. `QStringList lines = csv.split('\n')` copies all lines ✅ **DONE** `4b08333`
 - **Where:** `parseCsv()` in `DataStore.cpp`
 - **Issue:** `split` creates a `QStringList` with copies of every line.
-- **Fix:** Use `QStringView` with `split` (Qt 6) or iterate with `indexOf`.
+- **Fix:** ~~Use `QStringView` with `split` (Qt 6) or iterate with `indexOf`.~~
+  Replaced `QStringList lines = csv.split('\n')` with `QStringTokenizer{csv, u'\n'}` range-for loop, avoiding the intermediate QStringList allocation.
 
-### 20. No `reserve()` on `QJsonArray` in `toJson()`/`fromJson()`
+### 20. No `reserve()` on `QJsonArray` in `toJson()`/`fromJson()` 🔵 **NOTE**
 - **Where:** `src/models/Folder.cpp:40-50`
 - **Issue:** Pre-reserving array capacity would reduce reallocations during serialization.
+- **Note:** `QJsonArray` in Qt 6 does not expose a `reserve()` method. The internal `QList` backing may benefit from reserve but the API doesn't allow it.
 
 ---
 
