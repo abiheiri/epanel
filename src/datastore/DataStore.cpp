@@ -927,7 +927,8 @@ void DataStore::importSafariBookmarks(const QString &path)
             targetSubfolderIndex[target.subfolders[i].name.toLower()] = i;
         }
         for (const auto &sourceSub : source.subfolders) {
-            auto it = targetSubfolderIndex.find(sourceSub.name.toLower());
+            const QString key = sourceSub.name.toLower();
+            auto it = targetSubfolderIndex.find(key);
             if (it != targetSubfolderIndex.end()) {
                 self(sourceSub, target.subfolders[it.value()], urls, entriesAdded, foldersAdded, dupes, self);
             } else {
@@ -1194,7 +1195,8 @@ void DataStore::applyFullSafariImport(const QVector<Folder> &bookmarkFolders, co
             targetSubfolderIndex[target.subfolders[i].name.toLower()] = i;
         }
         for (const auto &sourceSub : source.subfolders) {
-            auto it = targetSubfolderIndex.find(sourceSub.name.toLower());
+            const QString key = sourceSub.name.toLower();
+            auto it = targetSubfolderIndex.find(key);
             if (it != targetSubfolderIndex.end()) {
                 self(sourceSub, target.subfolders[it.value()], urls, self);
             } else {
