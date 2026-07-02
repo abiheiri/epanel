@@ -62,11 +62,13 @@ Folder Folder::fromJson(const QJsonObject &obj)
     folder.isCollapsed = obj["isCollapsed"].toBool(false);
 
     const QJsonArray entriesArr = obj["entries"].toArray();
+    folder.entries.reserve(entriesArr.size());
     for (const auto &val : entriesArr) {
         folder.entries.append(Entry::fromJson(val.toObject()));
     }
 
     const QJsonArray foldersArr = obj["subfolders"].toArray();
+    folder.subfolders.reserve(foldersArr.size());
     for (const auto &val : foldersArr) {
         folder.subfolders.append(Folder::fromJson(val.toObject()));
     }
