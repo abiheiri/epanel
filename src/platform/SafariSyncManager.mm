@@ -155,6 +155,11 @@ void SafariSyncManager::start(const QString &plistPath)
 
     m_watcher = new QFileSystemWatcher(this);
     connect(m_watcher, &QFileSystemWatcher::fileChanged, this, [this]() {
+        // Safari replaces the plist atomically (rename), which drops it from
+        // the watcher; re-add it so we keep getting notifications.
+        if (!m_watcher->files().contains(m_plistPath) && QFile::exists(m_plistPath)) {
+            m_watcher->addPath(m_plistPath);
+        }
         syncFromSafari();
     });
     m_watcher->addPath(plistPath);
@@ -342,6 +347,12 @@ void SafariSyncManager::writebackToSafari()
 {
     if (m_plistPath.isEmpty()) return;
     if (m_writebackInProgress) return;
+
+    // Import any Safari-side changes that landed since the last sync so the
+    // rebuild below doesn't silently drop them. No-op if the plist is
+    // unchanged; must run before m_writebackInProgress is set.
+    syncFromSafari();
+
     m_writebackInProgress = true;
 
     // Coordinate with other running ePanel instances. Only one instance writes
