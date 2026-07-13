@@ -47,12 +47,17 @@ jobs:
 
       - name: Install Qt
         uses: jurplel/install-qt-action@v4
+        env:
+          # Longer retry/backoff for .sha256 fetches; download.qt.io's CDN
+          # intermittently 404s checksum files for newly published repos.
+          AQT_CONFIG: ${{ github.workspace }}/.github/aqt-settings.ini
         with:
           version: '6.12.0'
           host: ${{ matrix.os }}
           target: desktop
           arch: ${{ matrix.arch }}
           dir: ${{ github.workspace }}/qt
+          cache: true
           # aqtinstall <3.4 doesn't understand Qt 6.11+'s new Windows repository
           # layout (per-arch Updates.xml). Use upstream master until released.
           aqtsource: 'git+https://github.com/miurahr/aqtinstall.git'
