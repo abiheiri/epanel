@@ -94,6 +94,20 @@ void TreeModel::updateFolderById(const QUuid &folderId)
     if (!folder) return;
 
     updateFolderNode(node, *folder);
+
+    // Moving/adding/removing entries changes the recursive count of every
+    // ancestor too. Refresh those labels so nested folders don't show stale
+    // counts after a move.
+    for (Node *anc = node->parent; anc && anc != m_root; anc = anc->parent) {
+        if (anc->type != FolderType) continue;
+        const Folder *af = m_store->findFolder(anc->id);
+        if (!af || anc->entryCount == af->totalEntryCount()) continue;
+        anc->entryCount = af->totalEntryCount();
+        const QModelIndex idx = indexForNode(anc);
+        if (idx.isValid()) {
+            emit dataChanged(idx, idx, {Qt::DisplayRole});
+        }
+    }
 }
 
 void TreeModel::updateFolderNode(Node *parentNode, const Folder &folder)
@@ -216,6 +230,19 @@ void TreeModel::updateFolderNode(Node *parentNode, const Folder &folder)
         }
         endRemoveRows();
         Node::renumberChildren(parentNode);
+    }
+
+    // Keep this folder node's own cached recursive count in sync with the
+    // data. DataStore::adjustEntryCounts() already updated Folder::entryCount,
+    // but the node's copy is otherwise only refreshed when this folder appears
+    // as a child of another folder being updated — which never happens for the
+    // folder that is the direct target of an update.
+    if (parentNode->type == FolderType && parentNode->entryCount != folder.totalEntryCount()) {
+        parentNode->entryCount = folder.totalEntryCount();
+        const QModelIndex idx = indexForNode(parentNode);
+        if (idx.isValid()) {
+            emit dataChanged(idx, idx, {Qt::DisplayRole});
+        }
     }
 }
 
