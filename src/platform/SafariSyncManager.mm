@@ -170,6 +170,13 @@ void SafariSyncManager::start(const QString &plistPath)
     m_pollTimer->start();
 
     connect(m_store, &DataStore::dataChanged, this, &SafariSyncManager::scheduleWriteback);
+    // Folder-level mutations (add/move/delete entry or folder, rename) only
+    // emit folderDataChanged, not dataChanged. Without this, moving an entry
+    // out of the Reading List never writes back to Safari, so the next sync
+    // re-imports the stale copy and the item reappears in its old location.
+    connect(m_store, &DataStore::folderDataChanged, this, [this](const QUuid &) {
+        scheduleWriteback();
+    });
 
     syncFromSafari();
 }
