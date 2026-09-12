@@ -635,17 +635,18 @@ void DataStore::deleteEntry(const QUuid &entryId)
 {
     auto parentIt = m_entryParentIndex.find(entryId);
     if (parentIt == m_entryParentIndex.end()) return;
+    const QUuid parentId = parentIt.value();
 
-    Folder *folder = findFolder(parentIt.value());
+    Folder *folder = findFolder(parentId);
     if (!folder) return;
 
     for (int i = 0; i < folder->entries.size(); ++i) {
         if (folder->entries[i].id == entryId) {
             folder->entries.removeAt(i);
             m_entryParentIndex.remove(entryId);
-            adjustEntryCounts(parentIt.value(), -1);
+            adjustEntryCounts(parentId, -1);
             scheduleSaveData();
-            emit folderDataChanged(parentIt.value());
+            emit folderDataChanged(parentId);
             return;
         }
     }
@@ -699,9 +700,12 @@ void DataStore::moveEntry(const QUuid &entryId, const QUuid &toFolderId)
 {
     auto parentIt = m_entryParentIndex.find(entryId);
     if (parentIt == m_entryParentIndex.end()) return;
-    if (parentIt.value() == toFolderId) return;
+    // Capture the source folder id up front; parentIt is invalidated once we
+    // remove/reinsert entryId below.
+    const QUuid sourceFolderId = parentIt.value();
+    if (sourceFolderId == toFolderId) return;
 
-    Folder *sourceFolder = findFolder(parentIt.value());
+    Folder *sourceFolder = findFolder(sourceFolderId);
     if (!sourceFolder) return;
 
     Entry moved;
@@ -721,18 +725,18 @@ void DataStore::moveEntry(const QUuid &entryId, const QUuid &toFolderId)
     if (!targetFolder) {
         // Roll back if target is missing.
         sourceFolder->entries.insert(index, moved);
-        m_entryParentIndex[entryId] = parentIt.value();
+        m_entryParentIndex[entryId] = sourceFolderId;
         return;
     }
 
     targetFolder->entries.append(moved);
     m_entryParentIndex[entryId] = toFolderId;
 
-    adjustEntryCounts(parentIt.value(), -1);
+    adjustEntryCounts(sourceFolderId, -1);
     adjustEntryCounts(toFolderId, 1);
 
     scheduleSaveData();
-    emit folderDataChanged(parentIt.value());
+    emit folderDataChanged(sourceFolderId);
     emit folderDataChanged(toFolderId);
 }
 
