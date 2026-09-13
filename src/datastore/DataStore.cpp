@@ -1207,18 +1207,35 @@ void DataStore::applyFullSafariImport(const QVector<Folder> &bookmarkFolders, co
         }
     };
 
+    auto findFolderByName = [&](const QString &name) -> Folder * {
+        for (auto &sub : m_data.rootFolder.subfolders) {
+            if (sub.name.compare(name, Qt::CaseInsensitive) == 0) return &sub;
+        }
+        return nullptr;
+    };
+
     for (const auto &sourceFolder : bookmarkFolders) {
-        Folder target(sourceFolder.name);
-        mergeFolderImpl(sourceFolder, target, existingURLs, mergeFolderImpl);
-        if (!target.entries.isEmpty() || !target.subfolders.isEmpty()) {
-            m_data.rootFolder.subfolders.append(target);
+        Folder *existing = findFolderByName(sourceFolder.name);
+        if (existing) {
+            mergeFolderImpl(sourceFolder, *existing, existingURLs, mergeFolderImpl);
+        } else {
+            Folder target(sourceFolder.name);
+            mergeFolderImpl(sourceFolder, target, existingURLs, mergeFolderImpl);
+            if (!target.entries.isEmpty() || !target.subfolders.isEmpty()) {
+                m_data.rootFolder.subfolders.append(target);
+            }
         }
     }
 
     if (!readingList.entries.isEmpty() || !readingList.subfolders.isEmpty()) {
-        Folder target("Reading List");
-        mergeFolderImpl(const_cast<Folder &>(readingList), target, existingURLs, mergeFolderImpl);
-        m_data.rootFolder.subfolders.prepend(target);
+        Folder *existingRL = findFolderByName("Reading List");
+        if (existingRL) {
+            mergeFolderImpl(readingList, *existingRL, existingURLs, mergeFolderImpl);
+        } else {
+            Folder target("Reading List");
+            mergeFolderImpl(readingList, target, existingURLs, mergeFolderImpl);
+            m_data.rootFolder.subfolders.prepend(target);
+        }
     }
 
     rebuildIndex();

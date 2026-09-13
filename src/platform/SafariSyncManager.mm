@@ -170,6 +170,9 @@ void SafariSyncManager::start(const QString &plistPath)
     m_pollTimer->start();
 
     connect(m_store, &DataStore::dataChanged, this, &SafariSyncManager::scheduleWriteback);
+    // Per-folder/entry edits emit folderDataChanged (not dataChanged) since the
+    // targeted-update optimization; listen to both so edits still push to Safari.
+    connect(m_store, &DataStore::folderDataChanged, this, &SafariSyncManager::scheduleWriteback);
 
     syncFromSafari();
 }
