@@ -904,9 +904,16 @@ void DataStore::importSafariBookmarks(const QString &path)
 {
 #ifdef Q_OS_MACOS
     SafariSyncManager manager(this);
-    auto result = manager.performFullImport(path);
+    bool readFailed = false;
+    auto result = manager.performFullImport(path, &readFailed);
     if (!result) {
-        showAlert(tr("Invalid Safari bookmarks file format"));
+        if (readFailed) {
+            showAlert(tr("ePanel cannot read the selected Safari bookmarks file. "
+                         "Grant ePanel Full Disk Access in System Settings → Privacy & Security → "
+                         "Full Disk Access, then try again."));
+        } else {
+            showAlert(tr("Invalid Safari bookmarks file format"));
+        }
         return;
     }
 
@@ -1245,55 +1252,85 @@ void DataStore::applyFullSafariImport(const QVector<Folder> &bookmarkFolders, co
     emit lastSyncDateChanged(m_lastSyncDate);
 }
 
+static void reconcileSafariFolder(Folder &target, const Folder &source)
+{
+    target.name = source.name;
+
+    // Keep existing entry ids (and dates) for URLs that already exist so the
+    // view and any selection survive a sync. New URLs keep their fresh ids.
+    QHash<QString, Entry> existingByText;
+    for (const auto &e : target.entries) {
+        const QString key = e.text.toLower().trimmed();
+        if (!key.isEmpty()) existingByText.insert(key, e);
+    }
+    target.entries = source.entries;
+    for (auto &e : target.entries) {
+        const auto it = existingByText.find(e.text.toLower().trimmed());
+        if (it != existingByText.end()) {
+            e.id = it.value().id;
+            e.date = it.value().date;
+        }
+    }
+
+    // Reconcile subfolders by name, keeping existing subfolder ids and their
+    // isCollapsed state stable. Subfolders removed in Safari are dropped.
+    QHash<QString, QVector<Folder *>> existingByName;
+    for (auto &sub : target.subfolders) {
+        existingByName[sub.name.toLower()].append(&sub);
+    }
+
+    QVector<Folder> reconciled;
+    reconciled.reserve(source.subfolders.size());
+    for (const auto &srcSub : source.subfolders) {
+        const QString key = srcSub.name.toLower();
+        auto it = existingByName.find(key);
+        if (it != existingByName.end() && !it.value().isEmpty()) {
+            Folder *match = it.value().takeFirst();
+            reconcileSafariFolder(*match, srcSub);
+            reconciled.append(*match);
+        } else {
+            Folder fresh(srcSub.name);
+            reconcileSafariFolder(fresh, srcSub);
+            reconciled.append(fresh);
+        }
+    }
+    target.subfolders = std::move(reconciled);
+}
+
 void DataStore::applySafariSync(const QVector<Folder> &bookmarkFolders, const Folder &readingList)
 {
     m_syncingFromSafari = true;
 
-    // Capture collapsed state
-    QHash<QString, bool> collapsedState;
-    auto capture = [&](auto &self, const Folder &folder) -> void {
-        collapsedState[folder.id.toString(QUuid::WithoutBraces)] = folder.isCollapsed;
-        for (const auto &sub : folder.subfolders) self(self, sub);
-    };
-    for (const auto &sub : m_data.rootFolder.subfolders) capture(capture, sub);
-
-    auto restore = [&](auto &self, Folder &folder) -> void {
-        if (collapsedState.contains(folder.id.toString(QUuid::WithoutBraces))) {
-            folder.isCollapsed = collapsedState[folder.id.toString(QUuid::WithoutBraces)];
-        }
-        for (auto &sub : folder.subfolders) self(self, sub);
-    };
-
+    // Reconcile (rather than replace) so existing folder/entry ids are kept,
+    // which prevents the tree view from collapsing or resetting on each sync.
     for (const auto &safariFolder : bookmarkFolders) {
         bool found = false;
-        for (int i = 0; i < m_data.rootFolder.subfolders.size(); ++i) {
-            if (m_data.rootFolder.subfolders[i].name == safariFolder.name) {
-                m_data.rootFolder.subfolders[i] = safariFolder;
-                restore(restore, m_data.rootFolder.subfolders[i]);
+        for (auto &sub : m_data.rootFolder.subfolders) {
+            if (sub.name == safariFolder.name) {
+                reconcileSafariFolder(sub, safariFolder);
                 found = true;
                 break;
             }
         }
-        if (!found && (!safariFolder.entries.isEmpty() || !safariFolder.subfolders.isEmpty())) {
-            m_data.rootFolder.subfolders.append(safariFolder);
-            restore(restore, m_data.rootFolder.subfolders.last());
+        if (!found) {
+            Folder fresh(safariFolder.name);
+            reconcileSafariFolder(fresh, safariFolder);
+            m_data.rootFolder.subfolders.append(fresh);
         }
     }
 
     bool readingListFound = false;
-    for (int i = 0; i < m_data.rootFolder.subfolders.size(); ++i) {
-        if (m_data.rootFolder.subfolders[i].name == "Reading List") {
-            m_data.rootFolder.subfolders[i] = readingList;
-            m_data.rootFolder.subfolders[i].name = "Reading List";
-            restore(restore, m_data.rootFolder.subfolders[i]);
+    for (auto &sub : m_data.rootFolder.subfolders) {
+        if (sub.name == QStringLiteral("Reading List")) {
+            reconcileSafariFolder(sub, readingList);
             readingListFound = true;
             break;
         }
     }
     if (!readingListFound && !readingList.entries.isEmpty()) {
-        m_data.rootFolder.subfolders.prepend(readingList);
-        m_data.rootFolder.subfolders.first().name = "Reading List";
-        restore(restore, m_data.rootFolder.subfolders.first());
+        Folder fresh(QStringLiteral("Reading List"));
+        reconcileSafariFolder(fresh, readingList);
+        m_data.rootFolder.subfolders.prepend(fresh);
     }
 
     rebuildIndex();
@@ -1316,9 +1353,14 @@ void DataStore::enableSafariSync(const QString &bookmarksPlistPath)
 
     moveExistingContentToOriginalFolder();
 
-    auto result = manager->performFullImport(bookmarksPlistPath);
+    bool readFailed = false;
+    auto result = manager->performFullImport(bookmarksPlistPath, &readFailed);
     if (result) {
         applyFullSafariImport(result->first, result->second);
+    } else if (readFailed) {
+        showAlert(tr("ePanel cannot read the selected Safari bookmarks file. "
+                     "Grant ePanel Full Disk Access in System Settings → Privacy & Security → "
+                     "Full Disk Access, then re-enable sync."));
     }
 
     m_safariSyncEnabled = true;

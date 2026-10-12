@@ -21,7 +21,7 @@
         "rhs": "Darwin"
       },
       "cacheVariables": {
-        "CMAKE_PREFIX_PATH": "/Users/al/Documents/epanel_cpp/.qt/6.12.0/macos/6.12.0/macos"
+        "CMAKE_PREFIX_PATH": "${sourceDir}/.qt/6.12.0/macos"
       }
     },
     {

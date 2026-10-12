@@ -25,7 +25,7 @@ public:
     void start(const QString &plistPath);
     void stop();
 
-    std::optional<QPair<QVector<Folder>, Folder>> performFullImport(const QString &plistPath);
+    std::optional<QPair<QVector<Folder>, Folder>> performFullImport(const QString &plistPath, bool *readFailed = nullptr);
 
 private slots:
     void syncFromSafari();
@@ -41,4 +41,5 @@ private:
     QDateTime m_lastModificationDate;
     bool m_applyingSync = false;
     bool m_writebackInProgress = false;
+    bool m_lastReadFailed = false;
 };

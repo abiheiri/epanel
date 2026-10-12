@@ -27,19 +27,27 @@ static QString nsStringToQString(NSString *s)
     return QString::fromNSString(s);
 }
 
-static id readPlist(const QString &path)
+static id readPlist(const QString &path, NSError **outError = nullptr)
 {
     NSURL *url = [NSURL fileURLWithPath:qStringToNSString(path)];
-    NSData *data = [NSData dataWithContentsOfURL:url];
-    if (!data) return nil;
-
     NSError *error = nil;
+    NSData *data = [NSData dataWithContentsOfURL:url options:0 error:&error];
+    if (!data) {
+        if (error) {
+            qWarning() << "Failed to read Safari bookmarks:" << nsStringToQString(error.localizedDescription);
+        }
+        if (outError) *outError = error;
+        return nil;
+    }
+
     id plist = [NSPropertyListSerialization propertyListWithData:data
                                                            options:NSPropertyListImmutable
                                                             format:nil
                                                              error:&error];
     if (error) {
-        qWarning() << "Failed to read plist:" << nsStringToQString(error.localizedDescription);
+        qWarning() << "Failed to parse Safari bookmarks plist:" << nsStringToQString(error.localizedDescription);
+        if (outError) *outError = error;
+        return nil;
     }
     return plist;
 }
@@ -77,24 +85,36 @@ static Folder convertSafariChildren(NSArray *children)
             }
         } else if ([bookmarkType isEqualToString:@"WebBookmarkTypeList"]) {
             NSArray *subChildren = child[@"Children"];
-            if (subChildren) {
-                Folder sub = convertSafariChildren(subChildren);
-                sub.name = nsStringToQString(title);
-                if (sub.name.isEmpty()) sub.name = QObject::tr("Untitled Folder");
-                folder.subfolders.append(sub);
-            }
+            Folder sub = [subChildren isKindOfClass:[NSArray class]]
+                             ? convertSafariChildren(subChildren)
+                             : Folder(QString());
+            sub.name = nsStringToQString(title);
+            if (sub.name.isEmpty()) sub.name = QObject::tr("Untitled Folder");
+            folder.subfolders.append(sub);
         }
     }
     return folder;
 }
 
-static std::optional<QPair<QVector<Folder>, Folder>> parseSafariPlist(const QString &path)
+static std::optional<QPair<QVector<Folder>, Folder>> parseSafariPlist(const QString &path, bool *readFailed)
 {
-    id plist = readPlist(path);
-    if (![plist isKindOfClass:[NSDictionary class]]) return std::nullopt;
+    NSError *error = nil;
+    id plist = readPlist(path, &error);
+    if (!plist) {
+        if (readFailed) *readFailed = true;
+        return std::nullopt;
+    }
+    if (readFailed) *readFailed = false;
+    if (![plist isKindOfClass:[NSDictionary class]]) {
+        qWarning() << "Safari bookmarks plist has an unexpected root type";
+        return std::nullopt;
+    }
     NSDictionary *dict = (NSDictionary *)plist;
     NSArray *children = dict[@"Children"];
-    if (![children isKindOfClass:[NSArray class]]) return std::nullopt;
+    if (![children isKindOfClass:[NSArray class]]) {
+        qWarning() << "Safari bookmarks plist has no Children array";
+        return std::nullopt;
+    }
 
     QVector<Folder> bookmarkFolders;
     Folder readingList(QObject::tr("Reading List"));
@@ -105,7 +125,7 @@ static std::optional<QPair<QVector<Folder>, Folder>> parseSafariPlist(const QStr
 
         if (![bookmarkType isEqualToString:@"WebBookmarkTypeList"]) continue;
         NSArray *subChildren = child[@"Children"];
-        if (![subChildren isKindOfClass:[NSArray class]]) continue;
+        if (subChildren && ![subChildren isKindOfClass:[NSArray class]]) continue;
 
         if ([title isEqualToString:@"com.apple.ReadingList"]) {
             readingList = convertSafariChildren(subChildren);
@@ -174,7 +194,9 @@ void SafariSyncManager::start(const QString &plistPath)
     // targeted-update optimization; listen to both so edits still push to Safari.
     connect(m_store, &DataStore::folderDataChanged, this, &SafariSyncManager::scheduleWriteback);
 
-    syncFromSafari();
+    // Defer the initial sync until the event loop runs, so any permission alert
+    // is delivered after the main window (and its alert handler) is connected.
+    QTimer::singleShot(0, this, [this]() { syncFromSafari(); });
 }
 
 void SafariSyncManager::stop()
@@ -196,9 +218,9 @@ void SafariSyncManager::stop()
     m_plistPath.clear();
 }
 
-std::optional<QPair<QVector<Folder>, Folder>> SafariSyncManager::performFullImport(const QString &plistPath)
+std::optional<QPair<QVector<Folder>, Folder>> SafariSyncManager::performFullImport(const QString &plistPath, bool *readFailed)
 {
-    return parseSafariPlist(plistPath);
+    return parseSafariPlist(plistPath, readFailed);
 }
 
 void SafariSyncManager::syncFromSafari()
@@ -209,9 +231,25 @@ void SafariSyncManager::syncFromSafari()
     QFileInfo info(m_plistPath);
     QDateTime mod = info.lastModified();
     if (m_lastModificationDate.isValid() && mod <= m_lastModificationDate) return;
+
+    bool readFailed = false;
+    auto result = parseSafariPlist(m_plistPath, &readFailed);
+    if (readFailed) {
+        if (!m_lastReadFailed) {
+            m_lastReadFailed = true;
+            m_store->showAlert(tr("ePanel cannot read your Safari bookmarks. "
+                                  "Grant ePanel Full Disk Access in System Settings → Privacy & Security → "
+                                  "Full Disk Access, then relaunch ePanel."));
+        }
+        return;
+    }
+    m_lastReadFailed = false;
+
+    // Only advance the timestamp once the file has been read successfully, so a
+    // transient permission error is retried on the next poll instead of being
+    // swallowed by the mtime guard.
     m_lastModificationDate = mod;
 
-    auto result = parseSafariPlist(m_plistPath);
     if (!result) return;
 
     m_applyingSync = true;
