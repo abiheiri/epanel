@@ -1228,9 +1228,9 @@ void DataStore::applyFullSafariImport(const QVector<Folder> &bookmarkFolders, co
         } else {
             Folder target(sourceFolder.name);
             mergeFolderImpl(sourceFolder, target, existingURLs, mergeFolderImpl);
-            if (!target.entries.isEmpty() || !target.subfolders.isEmpty()) {
-                m_data.rootFolder.subfolders.append(target);
-            }
+            // Always add the folder, even if empty, so new empty folders
+            // created in Safari are visible in ePanel.
+            m_data.rootFolder.subfolders.append(target);
         }
     }
 
